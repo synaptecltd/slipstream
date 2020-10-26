@@ -1,6 +1,7 @@
 package streamprotocol
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"time"
@@ -16,6 +17,7 @@ type Dataset struct {
 
 // DatasetWithQuality defines lists of decoded variables with quality
 type DatasetWithQuality struct {
+	T      uint64
 	Int32s []int32
 	Q      []uint32
 }
@@ -28,18 +30,19 @@ type qualityHistory struct {
 
 // Encoder defines a stream protocol instance
 type Encoder struct {
-	ID               uuid.UUID
-	samplingRate     int
-	samplesPerPacket int
-	encodedSamples   int
-	buf              []byte
-	len              int
-	dataLen          int
-	totalTime        time.Duration
-	Int32Count       int
-	prevSamples      Dataset
-	prevDiffs        Dataset
-	qualityHistory   [][]qualityHistory
+	ID                 uuid.UUID
+	samplingRate       int
+	samplesPerPacket   int
+	encodedSamples     int
+	buf                []byte
+	len                int
+	dataLen            int
+	totalTime          time.Duration
+	Int32Count         int
+	prevSamples        Dataset
+	prevDiffs          Dataset
+	qualityHistory     [][]qualityHistory
+	qualityOffsetBytes int
 }
 
 // Decoder defines a stream protocol instance for decoding
@@ -81,19 +84,107 @@ func (s *Encoder) setStreamDataset(int32Count int) {
 }
 
 // NewDecoder creates a stream protocol decoder instance
-func NewDecoder(samplesPerPacket int) *Decoder {
+func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int) *Decoder {
+	// estimate 1 second as suitable channel buffer capacity
+	channelCapacity := samplingRate
 
 	d := &Decoder{
-		samplesPerPacket: samplesPerPacket,
-		Int32Count:       0,
-		Ch:               make(chan DatasetWithQuality, samplesPerPacket*2),
+		ID:           ID,
+		Int32Count:   int32Count,
+		samplingRate: samplingRate,
+		Ch:           make(chan DatasetWithQuality, channelCapacity),
 	}
 
 	return d
 }
 
+// type header struct {
+// 	ID uuid.UUID
+// 	startTime uint64
+// 	samplingRate int
+// }
+
 // Decode decodes a stream protocol message
-func (s *Encoder) Decode(buf []byte) {
+func (s *Decoder) Decode(buf []byte, totalLength int) {
+	length := 16
+	var lenQuality uint32 = 0
+	var quality [][]qualityHistory = make([][]qualityHistory, s.Int32Count)
+	for i := range quality {
+		quality[i] = []qualityHistory{{value: 0, samples: 0}}
+	}
+
+	// check ID
+	res := bytes.Compare(buf[:length], s.ID[:])
+	if res != 0 {
+		fmt.Println("ID no match", buf[:length], s.ID[:])
+		return
+	}
+
+	// decode timestamp
+	startTime := binary.BigEndian.Uint64(buf[length:])
+	length += 8
+
+	// decode sampling rate
+	samplingRate := binary.BigEndian.Uint32(buf[length:])
+	length += 4
+
+	// decode number of data samples
+	samplesPerPacket := binary.BigEndian.Uint32(buf[length:])
+	length += 4
+
+	// decode quality offset
+	qualityOffset := binary.BigEndian.Uint32(buf[length:])
+	length += 4
+
+	fmt.Println(startTime, samplingRate, samplesPerPacket, qualityOffset)
+
+	// initialise output structure
+	var data DatasetWithQuality = DatasetWithQuality{
+		T:      startTime,
+		Int32s: make([]int32, s.Int32Count),
+		Q:      make([]uint32, s.Int32Count),
+	}
+
+	// get first samples
+	for i := 0; i < s.Int32Count; i++ {
+		data.Int32s[i] = int32(binary.BigEndian.Uint32(buf[length:]))
+		length += 4
+	}
+
+	// populate quality structure
+	lenQuality = qualityOffset
+	for i := 0; i < s.Int32Count; i++ {
+		quality[i][0].value = binary.BigEndian.Uint32(buf[lenQuality:])
+		lenQuality += 4
+		quality[i][0].samples = binary.BigEndian.Uint32(buf[lenQuality:])
+		lenQuality += 4
+		if quality[i][0].samples != 0 {
+			// decode each quality change and store in structure
+			totalSamples := quality[i][0].samples
+			for j := 1; ; j++ {
+				// create and populate new array item
+				quality[i] = append(quality[i], qualityHistory{value: 0, samples: 0})
+				// fmt.Println(i, j, len(quality[i]), "totalSamples", totalSamples, "length:", lenQuality, totalLength)
+				quality[i][j].value = binary.BigEndian.Uint32(buf[lenQuality:])
+				lenQuality += 4
+				quality[i][j].samples = binary.BigEndian.Uint32(buf[lenQuality:])
+				lenQuality += 4
+
+				totalSamples += quality[i][j].samples
+				if totalSamples >= samplesPerPacket {
+					break
+				}
+			}
+		}
+	}
+
+	// extract first quality value and send first set of samples
+	for i := 0; i < s.Int32Count; i++ {
+		data.Q[i] = quality[i][0].value
+	}
+	s.Ch <- data
+
+	// TODO loop through remaining samples
 }
 
 // Encode encodes the next set of samples
@@ -102,9 +193,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 
 	if s.encodedSamples == 0 {
 		s.len = 0
-		// s.buf.WriteString(s.ID.String())
 		s.len += copy(s.buf[s.len:], s.ID[:])
-		// binary.PutVarint(s.buf, smpCnt)
 
 		// encode timestamp
 		binary.BigEndian.PutUint64(s.buf[s.len:], smpCnt)
@@ -118,16 +207,19 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 		binary.BigEndian.PutUint32(s.buf[s.len:], uint32(s.samplesPerPacket))
 		s.len += 4
 
+		// reserve space for the quality section offset
+		// need to encode offset to quality to decode synchronously with data
+		s.qualityOffsetBytes = s.len
+		s.len += 4
+
 		// encode first set of values
 		for i := range data.Int32s {
 			binary.BigEndian.PutUint32(s.buf[s.len:], uint32(data.Int32s[i]))
 			s.len += 4
 		}
 
-		// encode first set of quality
+		// record first set of quality
 		for i := range q {
-			// 	binary.BigEndian.PutUint32(s.buf[s.len:], q[i])
-			// 	s.len += 4
 			s.qualityHistory[i][0].value = q[i]
 			s.qualityHistory[i][0].samples = 1
 		}
@@ -155,7 +247,6 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 			s.dataLen += lenB
 			s.len += lenB
 			// fmt.Println(data.Ia1, s.prevSample.Ia1, s.prevDiff.Ia1, diff, lenB)
-			// s.prevDiff.Ia1 = int32(diff)
 		}
 		for i := range q {
 			if s.qualityHistory[i][len(s.qualityHistory[i])-1].value == q[i] {
@@ -171,22 +262,25 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 
 	s.encodedSamples++
 	if s.encodedSamples >= s.samplesPerPacket {
+		// encode the start offset of the quality section in the header
+		binary.BigEndian.PutUint32(s.buf[s.qualityOffsetBytes:], uint32(s.len))
+
 		// encode final quality values using RLE
 		for i := range q {
 			if len(s.qualityHistory[i]) == 1 {
-				// special case, no change in quality value
-				binary.BigEndian.PutUint32(s.buf[s.len:], 0)
-				s.len += 4
+				// special case, no change in quality value (encode samples as 0)
 				binary.BigEndian.PutUint32(s.buf[s.len:], s.qualityHistory[i][0].value)
+				s.len += 4
+				binary.BigEndian.PutUint32(s.buf[s.len:], 0)
 				s.len += 4
 			} else {
 				// otherwise, encode each value
-				fmt.Println("multiple Q values", len(s.qualityHistory[i]))
+				fmt.Println("encode multiple Q values", len(s.qualityHistory[i]))
 				for j := range s.qualityHistory[i] {
-					fmt.Println("  ", j, s.qualityHistory[i][j].samples, s.qualityHistory[i][j].value)
-					binary.BigEndian.PutUint32(s.buf[s.len:], s.qualityHistory[i][j].samples)
-					s.len += 4
+					// fmt.Println("  ", j, s.qualityHistory[i][j].samples, s.qualityHistory[i][j].value)
 					binary.BigEndian.PutUint32(s.buf[s.len:], s.qualityHistory[i][j].value)
+					s.len += 4
+					binary.BigEndian.PutUint32(s.buf[s.len:], s.qualityHistory[i][j].samples)
 					s.len += 4
 				}
 			}
@@ -203,6 +297,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 
 		finalLen := s.len
 
+		s.qualityOffsetBytes = 0
 		s.encodedSamples = 0
 		s.len = 0
 		s.dataLen = 0
