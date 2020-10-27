@@ -111,7 +111,7 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 	length += 8
 
 	// decode sampling rate
-	// samplingRate := binary.BigEndian.Uint32(buf[length:])	// TODO remove from header?
+	// samplingRate := binary.BigEndian.Uint32(buf[length:])	// TODO restore for calculating timestamps
 	length += 4
 
 	// decode number of data samples
@@ -172,7 +172,7 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 
 	if samplesPerPacket == 1 {
 		fmt.Println("done decoding message", data.T, samplesPerPacket, length, totalLength, qualityOffset)
-		fmt.Println("bytes:", buf[:], len(buf))
+		fmt.Println("encoded:", buf[:], len(buf))
 		return
 	}
 
@@ -197,7 +197,7 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 		totalSamples++
 		if totalSamples >= samplesPerPacket {
 			fmt.Println("done decoding message", data.T, totalSamples, samplesPerPacket, length, totalLength, qualityOffset)
-			fmt.Println("bytes:", buf[:], len(buf))
+			fmt.Println("encoded:", buf[:], len(buf))
 			return
 		}
 
@@ -242,7 +242,9 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		for i := range data.Int32s {
 			binary.BigEndian.PutUint32(s.buf[s.len:], uint32(data.Int32s[i]))
 			s.len += 4
-			fmt.Println("   encode first set of values:", s.len)
+			// save previous value
+			s.prevSamples.Int32s[i] = data.Int32s[i]
+			fmt.Println("  encode first set of values:", s.len)
 		}
 
 		fmt.Println("  header size:", s.len)
