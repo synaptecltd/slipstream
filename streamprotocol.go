@@ -57,7 +57,8 @@ type Decoder struct {
 // NewEncoder creates a stream protocol encoder instance
 func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerPacket int) *Encoder {
 	// estimate buffer space required
-	bufSize := samplesPerPacket * int32Count * 8
+	headerSize := 36
+	bufSize := headerSize + samplesPerPacket*int32Count*8 + int32Count*4
 
 	s := &Encoder{
 		ID:               ID,
@@ -98,12 +99,6 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int) *Decoder {
 	return d
 }
 
-// type header struct {
-// 	ID uuid.UUID
-// 	startTime uint64
-// 	samplingRate int
-// }
-
 // Decode decodes a stream protocol message
 func (s *Decoder) Decode(buf []byte, totalLength int) {
 	length := 16
@@ -125,7 +120,7 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 	length += 8
 
 	// decode sampling rate
-	samplingRate := binary.BigEndian.Uint32(buf[length:])
+	// samplingRate := binary.BigEndian.Uint32(buf[length:])	// TODO remove from header?
 	length += 4
 
 	// decode number of data samples
@@ -136,7 +131,7 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 	qualityOffset := binary.BigEndian.Uint32(buf[length:])
 	length += 4
 
-	fmt.Println(startTime, samplingRate, samplesPerPacket, qualityOffset)
+	// fmt.Println(startTime, samplingRate, samplesPerPacket, qualityOffset)
 
 	// initialise output structure
 	var data DatasetWithQuality = DatasetWithQuality{
@@ -185,6 +180,38 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 	s.Ch <- data
 
 	// TODO loop through remaining samples
+	var totalSamples uint32 = 1
+	var prevData DatasetWithQuality = DatasetWithQuality{}
+	for {
+
+		// TODO calculate T from samplingRate and totalSamples
+		data.T = startTime + uint64(totalSamples)
+		if data.T >= uint64(s.samplingRate) {
+			data.T = data.T - uint64(s.samplingRate)
+		}
+		for i := 0; i < s.Int32Count; i++ {
+			diff, bytes := binary.Varint(buf[length:])
+			length += bytes
+			data.Int32s[i] = data.Int32s[i] + int32(diff) // TODO confirm diff calculation
+			data.Q[i] = getQualityFromHistory(&quality[i], totalSamples)
+		}
+
+		s.Ch <- data
+
+		prevData.T = data.T
+		copy(prevData.Int32s, data.Int32s)
+		copy(prevData.Q, data.Q)
+
+		totalSamples++
+		if totalSamples >= samplesPerPacket {
+			break
+		}
+	}
+}
+
+func getQualityFromHistory(q *[]qualityHistory, sample uint32) uint32 {
+	// TODO
+	return 0
 }
 
 // Encode encodes the next set of samples
@@ -223,7 +250,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 			s.qualityHistory[i][0].value = q[i]
 			s.qualityHistory[i][0].samples = 1
 		}
-	} else if s.encodedSamples == 1 {
+	} else /*if s.encodedSamples == 1*/ {
 		for i := range data.Int32s {
 			var diff int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
 			s.prevDiffs.Int32s[i] = diff
@@ -239,22 +266,22 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 				s.qualityHistory[i] = append(s.qualityHistory[i], qualityHistory{value: q[i], samples: 1})
 			}
 		}
-	} else {
-		for i := range data.Int32s {
-			var diff int32 = data.Int32s[i] - s.prevSamples.Int32s[i] - s.prevDiffs.Int32s[i]
-			s.prevDiffs.Int32s[i] = diff
-			lenB := binary.PutVarint(s.buf[s.len:], int64(diff))
-			s.dataLen += lenB
-			s.len += lenB
-			// fmt.Println(data.Ia1, s.prevSample.Ia1, s.prevDiff.Ia1, diff, lenB)
-		}
-		for i := range q {
-			if s.qualityHistory[i][len(s.qualityHistory[i])-1].value == q[i] {
-				s.qualityHistory[i][len(s.qualityHistory[i])-1].samples++
-			} else {
-				s.qualityHistory[i] = append(s.qualityHistory[i], qualityHistory{value: q[i], samples: 1})
-			}
-		}
+		// } else {
+		// 	for i := range data.Int32s {
+		// 		var diff int32 = data.Int32s[i] - s.prevSamples.Int32s[i] - s.prevDiffs.Int32s[i]
+		// 		s.prevDiffs.Int32s[i] = diff
+		// 		lenB := binary.PutVarint(s.buf[s.len:], int64(diff))
+		// 		s.dataLen += lenB
+		// 		s.len += lenB
+		// 		// fmt.Println(data.Ia1, s.prevSample.Ia1, s.prevDiff.Ia1, diff, lenB)
+		// 	}
+		// 	for i := range q {
+		// 		if s.qualityHistory[i][len(s.qualityHistory[i])-1].value == q[i] {
+		// 			s.qualityHistory[i][len(s.qualityHistory[i])-1].samples++
+		// 		} else {
+		// 			s.qualityHistory[i] = append(s.qualityHistory[i], qualityHistory{value: q[i], samples: 1})
+		// 		}
+		// 	}
 	}
 
 	elapsed := time.Since(start)
@@ -291,9 +318,10 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 			s.qualityHistory[i] = []qualityHistory{{value: 0, samples: 0}}
 		}
 
-		inputData := float64(s.samplesPerPacket * s.Int32Count * 8)
-		efficiency := float64(s.dataLen) / inputData
-		fmt.Println(s.encodedSamples, "samples,", s.len, s.dataLen, efficiency, s.totalTime.Microseconds(), "µs")
+		// inputData := float64(s.samplesPerPacket * s.Int32Count * 8)
+		// efficiency := float64(s.dataLen) / inputData
+		// fmt.Println(s.encodedSamples, "samples,", s.len, s.dataLen, efficiency, s.totalTime.Microseconds(), "µs")
+		// fmt.Println(s.buf[0:s.len])
 
 		finalLen := s.len
 
