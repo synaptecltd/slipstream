@@ -25,11 +25,15 @@ func TestBasic(t *testing.T) {
 		countOfVariables  int
 		samples           int
 		samplesPerMessage int
+		qualityChange     bool // TODO test fail due to not implemented yet
 	}{
-		"1": {countOfVariables: 3, samples: 10, samplesPerMessage: 1},
-		"2": {countOfVariables: 3, samples: 10, samplesPerMessage: 2},
-		"3": {countOfVariables: 3, samples: 4000, samplesPerMessage: 2},
-		"4": {countOfVariables: 3, samples: 4000, samplesPerMessage: 4000},
+		// TODO add quality testing
+		"1":     {countOfVariables: 6, samples: 10, samplesPerMessage: 1},
+		"2":     {countOfVariables: 6, samples: 10, samplesPerMessage: 2},
+		"3":     {countOfVariables: 6, samples: 4000, samplesPerMessage: 2},
+		"6":     {countOfVariables: 6, samples: 4000, samplesPerMessage: 6},
+		"4000":  {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: false},
+		"4000q": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 	}
 
 	for name, test := range tests {
@@ -42,12 +46,10 @@ func TestBasic(t *testing.T) {
 				Ts:           1 / float64(samplingRate),
 				V: iedemulator.ThreePhaseEmulation{
 					PosSeqMag: 275000.0 / math.Sqrt(3) * math.Sqrt(2),
-					NegSeqAng: 0.0,
 					NoiseMax:  0.002,
 				},
 				I: iedemulator.ThreePhaseEmulation{
 					PosSeqMag:       500.0,
-					NegSeqAng:       0.0, //-0.646,
 					HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 					HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 					HarmonicAngs:    []float64{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, //{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
@@ -68,12 +70,23 @@ func TestBasic(t *testing.T) {
 				ied.Step()
 				// set waveform data
 				data[i].T = uint64(i)
-				data[i].Int32s[0] = int32(ied.V.A * 1000.0)
-				data[i].Int32s[1] = int32(ied.V.B * 1000.0)
-				data[i].Int32s[2] = int32(ied.V.C * 1000.0)
+				data[i].Int32s[0] = int32(ied.I.A * 1000.0)
+				data[i].Int32s[1] = int32(ied.I.B * 1000.0)
+				data[i].Int32s[2] = int32(ied.I.C * 1000.0)
+				data[i].Int32s[3] = int32(ied.V.A * 100.0)
+				data[i].Int32s[4] = int32(ied.V.B * 100.0)
+				data[i].Int32s[5] = int32(ied.V.C * 100.0)
 				data[i].Q[0] = 0
 				data[i].Q[1] = 0
 				data[i].Q[2] = 0
+				data[i].Q[3] = 0
+				data[i].Q[4] = 0
+				data[i].Q[5] = 0
+				if i == 2 {
+					if test.qualityChange {
+						data[i].Q[0] = 1
+					}
+				}
 			}
 
 			// create encoder and decoder
@@ -101,12 +114,12 @@ func TestBasic(t *testing.T) {
 						i := d.T
 						for j := 0; j < 1; j++ {
 							assert.Equal(t, data[i].Int32s[j], d.Int32s[j])
+							assert.Equal(t, data[i].Q[j], d.Q[j])
 							// if data[i].Int32s[j] != d.Int32s[j] {
 							// 	t.Errorf("T = %d: data[i].Int32s[j] (%d) != d.Int32s[j] (%d)", i, data[i].Int32s[j], d.Int32s[j])
 							// } else {
 							// 	t.Logf("T = %d: data[i].Int32s[j] (%d) == d.Int32s[j] (%d) (ok)", i, data[i].Int32s[j], d.Int32s[j])
 							// }
-							// TODO check Q
 						}
 					}
 				}
@@ -114,6 +127,7 @@ func TestBasic(t *testing.T) {
 
 			// encode the data
 			// when each message is complete, decode
+			printedLen := false
 			for i := range data {
 				dataset := streamprotocol.Dataset{
 					Int32s: make([]int32, len(data[i].Int32s)),
@@ -123,6 +137,11 @@ func TestBasic(t *testing.T) {
 				buf, len := stream.Encode(dataset, data[i].Q, data[i].T)
 
 				if len > 0 {
+					if !printedLen {
+						printedLen = true
+						// TODO generate average stats
+						t.Logf("  len: %d, bytes per variable: %f", len, float64(len)/float64(test.countOfVariables*test.samplesPerMessage))
+					}
 					// fmt.Println("decoding")
 					streamDecoder.Decode(buf, len)
 				}
