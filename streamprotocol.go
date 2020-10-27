@@ -204,7 +204,8 @@ func getQualityFromHistory(q *[]qualityHistory, sample uint32) uint32 {
 }
 
 // Encode encodes the next set of samples
-func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) {
+func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
+	// TODO refactor to use DatasetWithQuality
 	start := time.Now()
 
 	if s.encodedSamples == 0 {
@@ -212,7 +213,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, smpCnt uint64) ([]byte, int) 
 		s.len += copy(s.buf[s.len:], s.ID[:])
 
 		// encode timestamp
-		binary.BigEndian.PutUint64(s.buf[s.len:], smpCnt)
+		binary.BigEndian.PutUint64(s.buf[s.len:], t)
 		s.len += 8
 
 		// encode sampling rate
