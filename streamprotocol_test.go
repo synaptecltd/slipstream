@@ -1,7 +1,6 @@
 package streamprotocol_test
 
 import (
-	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -22,13 +21,15 @@ func TestBasic(t *testing.T) {
 	// samplesPerMessage := 2
 
 	tests := map[string]struct {
-		countOfVariables int
 		// samplingRate      int
+		countOfVariables  int
 		samples           int
 		samplesPerMessage int
 	}{
 		"1": {countOfVariables: 3, samples: 10, samplesPerMessage: 1},
 		"2": {countOfVariables: 3, samples: 10, samplesPerMessage: 2},
+		"3": {countOfVariables: 3, samples: 4000, samplesPerMessage: 2},
+		"4": {countOfVariables: 3, samples: 4000, samplesPerMessage: 4000},
 	}
 
 	for name, test := range tests {
@@ -84,7 +85,7 @@ func TestBasic(t *testing.T) {
 			// create thread to decode
 			done.Add(1)
 			go func(ch chan streamprotocol.DatasetWithQuality, wg *sync.WaitGroup) {
-				defer close(streamDecoder.Ch)
+				// defer close(streamDecoder.Ch)
 				count := 0
 				for {
 					select {
@@ -118,7 +119,7 @@ func TestBasic(t *testing.T) {
 					Int32s: make([]int32, len(data[i].Int32s)),
 				}
 				copy(dataset.Int32s, data[i].Int32s)
-				fmt.Println("ts in:", data[i].T)
+				// fmt.Println("ts in:", data[i].T)
 				buf, len := stream.Encode(dataset, data[i].Q, data[i].T)
 
 				if len > 0 {
