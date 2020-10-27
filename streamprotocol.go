@@ -168,11 +168,22 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 	}
 
 	// send first set of samples
-	s.Ch <- data
+	// slices within struct must be copied into new memory
+	// fmt.Println("  value before sending on ch:", data.Int32s[0])
+	dataCopy := DatasetWithQuality{
+		T:      data.T,
+		Int32s: make([]int32, s.Int32Count),
+		Q:      make([]uint32, s.Int32Count),
+	}
+	copy(dataCopy.Int32s, data.Int32s)
+	copy(dataCopy.Q, data.Q)
+	s.Ch <- dataCopy
+	// time.Sleep(time.Millisecond * 1)
+	// data.Int32s[0] = -42
 
 	if samplesPerPacket == 1 {
-		fmt.Println("done decoding message", data.T, samplesPerPacket, length, totalLength, qualityOffset)
-		fmt.Println("encoded:", buf[:], len(buf))
+		// fmt.Println("done decoding message", data.T, samplesPerPacket, length, totalLength, qualityOffset)
+		// fmt.Println("encoded:", buf[:], len(buf))
 		return
 	}
 
@@ -186,18 +197,27 @@ func (s *Decoder) Decode(buf []byte, totalLength int) {
 		// 	data.T = data.T - uint64(s.samplingRate)
 		// }
 		for i := 0; i < s.Int32Count; i++ {
-			diff, bytes := binary.Varint(buf[length:])
-			length += bytes
-			data.Int32s[i] = data.Int32s[i] + int32(diff)
+			diff, lenB := binary.Varint(buf[length:])
+			// fmt.Println("  decoded diff:", diff, lenB)
+			// fmt.Println("    prev value:", data.Int32s[i], "new value:", data.Int32s[i]+int32(diff))
+			length += lenB
+			data.Int32s[i] = data.Int32s[i] + int32(diff) // TODO check logic
 			data.Q[i] = getQualityFromHistory(&quality[i], totalSamples)
 		}
 
-		s.Ch <- data
+		dataCopy := DatasetWithQuality{
+			T:      data.T,
+			Int32s: make([]int32, s.Int32Count),
+			Q:      make([]uint32, s.Int32Count),
+		}
+		copy(dataCopy.Int32s, data.Int32s)
+		copy(dataCopy.Q, data.Q)
+		s.Ch <- dataCopy
 
 		totalSamples++
 		if totalSamples >= samplesPerPacket {
-			fmt.Println("done decoding message", data.T, totalSamples, samplesPerPacket, length, totalLength, qualityOffset)
-			fmt.Println("encoded:", buf[:], len(buf))
+			// fmt.Println("done decoding message", data.T, totalSamples, samplesPerPacket, length, totalLength, qualityOffset)
+			// fmt.Println("encoded:", buf[:], len(buf))
 			return
 		}
 
@@ -234,7 +254,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		s.len += 4
 
 		// reserve space for the quality section offset
-		// need to encode offset to quality to decode synchronously with data
+		// need to encode offset to quality section to decode synchronously with data
 		s.qualityOffsetBytes = s.len
 		s.len += 4
 
@@ -244,10 +264,10 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 			s.len += 4
 			// save previous value
 			s.prevSamples.Int32s[i] = data.Int32s[i]
-			fmt.Println("  encode first set of values:", s.len)
+			// fmt.Println("  encode first set of values:", s.len)
 		}
 
-		fmt.Println("  header size:", s.len)
+		// fmt.Println("  header size:", s.len)
 
 		// record first set of quality
 		for i := range q {
@@ -257,12 +277,12 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 	} else {
 		for i := range data.Int32s {
 			var diff int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+			// fmt.Println("values:", s.encodedSamples, data.Int32s[i], s.prevSamples.Int32s[i], diff)
 			lenB := binary.PutVarint(s.buf[s.len:], int64(diff))
-			s.dataLen += lenB
+			// s.dataLen += lenB
 			s.len += lenB
 			// save previous value
 			s.prevSamples.Int32s[i] = data.Int32s[i]
-			// fmt.Println(data.Ia1, s.prevSample.Ia1, diff, lenB)
 		}
 		for i := range q {
 			if s.qualityHistory[i][len(s.qualityHistory[i])-1].value == q[i] {
@@ -279,7 +299,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 	s.encodedSamples++
 	if s.encodedSamples >= s.samplesPerPacket {
 		// encode the start offset of the quality section in the header
-		fmt.Println("  qualityOffset:", s.len)
+		// fmt.Println("  qualityOffset:", s.len)
 		binary.BigEndian.PutUint32(s.buf[s.qualityOffsetBytes:], uint32(s.len))
 
 		// encode final quality values using RLE
@@ -308,10 +328,10 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 			s.qualityHistory[i] = []qualityHistory{{value: 0, samples: 0}}
 		}
 
-		// reset previous values
-		for i := range s.prevSamples.Int32s {
-			s.prevSamples.Int32s[i] = 0
-		}
+		// // reset previous values
+		// for i := range s.prevSamples.Int32s {
+		// 	s.prevSamples.Int32s[i] = 0
+		// }
 
 		// inputData := float64(s.samplesPerPacket * s.Int32Count * 8)
 		// efficiency := float64(s.dataLen) / inputData
@@ -327,7 +347,7 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		s.totalTime = 0
 
 		// send data
-		fmt.Println("encoded:", s.buf[:], len(s.buf))
+		// fmt.Println("encoded:", s.buf[:], len(s.buf))
 		return s.buf[0:finalLen], finalLen
 	}
 
