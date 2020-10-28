@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -31,7 +30,6 @@ type Encoder struct {
 	buf                []byte
 	len                int
 	dataLen            int
-	totalTime          time.Duration
 	Int32Count         int
 	prevSamples        Dataset
 	qualityHistory     [][]qualityHistory
@@ -235,7 +233,6 @@ func getQualityFromHistory(q *[]qualityHistory, sample uint32) uint32 {
 // Encode encodes the next set of samples
 func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 	// TODO refactor to use DatasetWithQuality
-	start := time.Now()
 
 	if s.encodedSamples == 0 {
 		s.len = 0
@@ -293,9 +290,6 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		}
 	}
 
-	elapsed := time.Since(start)
-	s.totalTime += elapsed
-
 	s.encodedSamples++
 	if s.encodedSamples >= s.samplesPerPacket {
 		// encode the start offset of the quality section in the header
@@ -344,7 +338,6 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		s.encodedSamples = 0
 		s.len = 0
 		s.dataLen = 0
-		s.totalTime = 0
 
 		// send data
 		// fmt.Println("encoded:", s.buf[:], len(s.buf))
