@@ -2,6 +2,7 @@ package streamprotocol_test
 
 import (
 	"math"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -22,21 +23,30 @@ var tests = map[string]struct {
 	samplesPerMessage int
 	qualityChange     bool // TODO test fail due to not implemented yet
 }{
-	"0001": {countOfVariables: 6, samples: 10, samplesPerMessage: 1},
-	"0002": {countOfVariables: 6, samples: 10, samplesPerMessage: 2},
-	"0003": {countOfVariables: 6, samples: 4000, samplesPerMessage: 2},
-	"0006": {countOfVariables: 6, samples: 4000, samplesPerMessage: 6},
-	"4000": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: false},
-	// "4000q": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
+	"10-1":      {countOfVariables: 6, samples: 10, samplesPerMessage: 1},
+	"10-2":      {countOfVariables: 6, samples: 10, samplesPerMessage: 2},
+	"4000-2":    {countOfVariables: 6, samples: 4000, samplesPerMessage: 2},
+	"4000-6":    {countOfVariables: 6, samples: 4000, samplesPerMessage: 6},
+	"4000-4000": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: false},
+	// "4000-4000q": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 }
 
 func BenchmarkEncodeDecode(b1 *testing.B) {
-	for name, test := range tests {
+	keys := make([]string, 0, len(tests))
+	for k := range tests {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
 		b1.Run(name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if b != nil {
 					b.StopTimer()
 				}
+
+				test := tests[name]
+
 				// settings for IED emulator
 				var ied *iedemulator.IEDEmulator = createIEDEmulator(samplingRate)
 
@@ -146,8 +156,14 @@ func listenAndCheckDecoder(t *testing.T, ch chan streamprotocol.DatasetWithQuali
 	}
 }
 
+type encodeStats struct {
+	iterations int
+	totalBytes int
+}
+
 func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int) {
-	printedLen := false
+	encodeStats := encodeStats{}
+
 	for i := range *data {
 		dataset := streamprotocol.Dataset{
 			Int32s: make([]int32, len((*data)[i].Int32s)),
@@ -157,16 +173,20 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 		buf, len := enc.Encode(dataset, (*data)[i].Q, (*data)[i].T)
 
 		if len > 0 {
-			if !printedLen {
-				printedLen = true
-				// TODO generate average stats
-				if t != nil {
-					t.Logf("len: %d, bytes per variable: %f", len, float64(len)/float64(countOfVariables*samplesPerMessage))
-				}
-			}
+			// TODO generate average stats
+			encodeStats.iterations++
+			encodeStats.totalBytes += len
+
 			// fmt.Println("decoding")
 			dec.Decode(buf, len)
 		}
+	}
+
+	if t != nil {
+		t.Logf("%d messages, average bytes per message: %.1f, average bytes per variable: %.1f",
+			encodeStats.iterations,
+			float64(encodeStats.totalBytes)/float64(encodeStats.iterations),
+			float64(encodeStats.totalBytes)/float64(encodeStats.iterations*countOfVariables*samplesPerMessage))
 	}
 }
 
