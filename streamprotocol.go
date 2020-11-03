@@ -246,7 +246,20 @@ func (s *Decoder) DecodeToChannel(buf []byte, totalLength int) error {
 }
 
 func getQualityFromHistory(q *[]qualityHistory, sample uint32) uint32 {
-	// TODO
+	// if sample == 0 {
+	// 	fmt.Println(sample, (*q)[0].value)
+	// 	return (*q)[0].value
+	// } else {
+	var position uint32 = 0
+	for i := range *q {
+		position += (*q)[i].samples
+		if sample+1 <= position {
+			return (*q)[i].value
+		}
+	}
+	// }
+
+	// default quality value
 	return 0
 }
 

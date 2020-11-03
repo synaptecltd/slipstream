@@ -21,16 +21,16 @@ var tests = map[string]struct {
 	countOfVariables  int
 	samples           int
 	samplesPerMessage int
-	qualityChange     bool // TODO test fail due to not implemented yet
+	qualityChange     bool
 }{
-	"10-1":      {countOfVariables: 6, samples: 10, samplesPerMessage: 1},
-	"10-2":      {countOfVariables: 6, samples: 10, samplesPerMessage: 2},
-	"4000-2":    {countOfVariables: 6, samples: 4000, samplesPerMessage: 2},
-	"4000-6":    {countOfVariables: 6, samples: 4000, samplesPerMessage: 6},
-	"4000-50":   {countOfVariables: 6, samples: 4000, samplesPerMessage: 80},
-	"4000-60":   {countOfVariables: 6, samples: 4000, samplesPerMessage: 67},
-	"4000-4000": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: false},
-	// "4000-4000q": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
+	"10-1":       {countOfVariables: 6, samples: 10, samplesPerMessage: 1},
+	"10-2":       {countOfVariables: 6, samples: 10, samplesPerMessage: 2},
+	"4000-2":     {countOfVariables: 6, samples: 4000, samplesPerMessage: 2},
+	"4000-6":     {countOfVariables: 6, samples: 4000, samplesPerMessage: 6},
+	"4000-50":    {countOfVariables: 6, samples: 4000, samplesPerMessage: 80},
+	"4000-60":    {countOfVariables: 6, samples: 4000, samplesPerMessage: 67},
+	"4000-4000":  {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: false},
+	"4000-4000q": {countOfVariables: 6, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 }
 
 func BenchmarkEncodeDecode(b1 *testing.B) {
@@ -142,6 +142,10 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 		if i == 2 {
 			if qualityChange {
 				data[i].Q[0] = 1
+			}
+		} else if i == 3 {
+			if qualityChange {
+				data[i].Q[0] = 0x41
 			}
 		}
 	}
