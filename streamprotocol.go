@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 
 	"github.com/google/uuid"
 )
@@ -24,13 +23,14 @@ type DatasetWithQuality struct {
 
 // Encoder defines a stream protocol instance
 type Encoder struct {
-	ID                 uuid.UUID
-	samplingRate       int
-	samplesPerPacket   int
-	encodedSamples     int
-	buf                []byte // TODO better to use bytes.Buffer?
-	len                int
-	dataLen            int
+	ID               uuid.UUID
+	samplingRate     int
+	samplesPerPacket int
+	encodedSamples   int
+	buf              []byte // TODO better to use bytes.Buffer?
+	len              int
+	// dataLen            int
+	HeaderBytes        int
 	Int32Count         int
 	prevSamples        Dataset
 	qualityHistory     [][]qualityHistory
@@ -41,9 +41,10 @@ type Encoder struct {
 type Decoder struct {
 	ID               uuid.UUID
 	samplingRate     int
-	samplesPerPacket int
+	samplesPerPacket uint32
 	Int32Count       int
 	Ch               chan DatasetWithQuality
+	Out              []DatasetWithQuality
 }
 
 type qualityHistory struct {
@@ -74,25 +75,231 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerPacket
 	return s
 }
 
-// NewDecoder creates a stream protocol decoder instance
-func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int) *Decoder {
-	// estimate 1 second as suitable channel buffer capacity
-	channelCapacity := samplingRate
+// NewChannelDecoder creates a stream protocol decoder instance to sends each output to a channel
+// func NewChannelDecoder(ID uuid.UUID, int32Count int, samplingRate int) *Decoder {
+// 	// estimate 1 second as suitable channel buffer capacity
+// 	channelCapacity := samplingRate
 
+// 	d := &Decoder{
+// 		ID:           ID,
+// 		Int32Count:   int32Count,
+// 		samplingRate: samplingRate,
+// 		Ch:           make(chan DatasetWithQuality, channelCapacity),
+// 		Out:          nil,
+// 	}
+
+// 	return d
+// }
+
+// NewDecoder creates a stream protocol decoder instance for pre-allocated output
+func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int) *Decoder {
 	d := &Decoder{
 		ID:           ID,
 		Int32Count:   int32Count,
 		samplingRate: samplingRate,
-		Ch:           make(chan DatasetWithQuality, channelCapacity),
+		Ch:           nil,
+		Out:          make([]DatasetWithQuality, samplingRate),
+	}
+
+	// initialise each set of outputs in data stucture
+	for i := range d.Out {
+		d.Out[i].Int32s = make([]int32, int32Count)
+		d.Out[i].Q = make([]uint32, int32Count)
 	}
 
 	return d
 }
 
+func (s *Decoder) decodeFirstSample(data *DatasetWithQuality, quality *[][]qualityHistory, buf []byte, bufStart int, qualityOffset uint32) int {
+	var valSigned int64 = 0
+	var valUnsigned uint64 = 0
+	var lenB int = 0
+	var lenQuality uint32 = qualityOffset
+	var length int = bufStart
+
+	// get first samples
+	for i := 0; i < s.Int32Count; i++ {
+		// data.Int32s[i] = int32(binary.BigEndian.Uint32(buf[length:]))
+		valSigned, lenB = binary.Varint(buf[length:])
+		data.Int32s[i] = int32(valSigned)
+		length += lenB
+	}
+
+	// populate quality structure
+	for i := 0; i < s.Int32Count; i++ {
+		valUnsigned, lenB = binary.Uvarint(buf[lenQuality:])
+		(*quality)[i][0].value = uint32(valUnsigned)
+		lenQuality += uint32(lenB)
+		valUnsigned, lenB = binary.Uvarint(buf[lenQuality:])
+		(*quality)[i][0].samples = uint32(valUnsigned)
+		lenQuality += uint32(lenB)
+		// fmt.Println("  decoded:", quality[i][0].value, quality[i][0].samples)
+
+		// TODO decoding data into quality seems to be the issue
+		if (*quality)[i][0].samples != 0 {
+			// fmt.Println("  quality[i][0].samples != 0", quality[i][0].value, quality[i][0].samples)
+			// decode each quality change and store in structure
+			totalSamples := (*quality)[i][0].samples
+			for j := 1; ; j++ {
+				// create and populate new array item
+				(*quality)[i] = append((*quality)[i], qualityHistory{value: 0, samples: 0})
+
+				// fmt.Println(i, j, len(quality[i]), "totalSamples", totalSamples, "length:", lenQuality, totalLength)
+				// quality[i][j].value = binary.BigEndian.Uint32(buf[lenQuality:])
+				// lenQuality += 4
+				// quality[i][j].samples = binary.BigEndian.Uint32(buf[lenQuality:])
+				// lenQuality += 4
+				valUnsigned, lenB = binary.Uvarint(buf[lenQuality:])
+				(*quality)[i][j].value = uint32(valUnsigned)
+				lenQuality += uint32(lenB)
+				valUnsigned, lenB = binary.Uvarint(buf[lenQuality:])
+				(*quality)[i][j].samples = uint32(valUnsigned)
+				lenQuality += uint32(lenB)
+
+				// fmt.Println("      decoded:", quality[i][j].value, quality[i][j].samples)
+
+				totalSamples += (*quality)[i][j].samples
+				if totalSamples >= s.samplesPerPacket || j+1 >= len((*quality)[i]) {
+					break
+				}
+			}
+		}
+	}
+
+	// extract first quality value
+	for i := 0; i < s.Int32Count; i++ {
+		data.Q[i] = (*quality)[i][0].value
+	}
+
+	return length - bufStart
+}
+
 // DecodeToChannel decodes a stream protocol message
-func (s *Decoder) DecodeToChannel(buf []byte, totalLength int) error {
-	length := 16
-	var lenQuality uint32 = 0
+// func (s *Decoder) DecodeToChannel(buf []byte, totalLength int) error {
+// 	var length int = 16
+// 	// var valSigned int64 = 0
+// 	var valUnsigned uint64 = 0
+// 	var lenB int = 0
+// 	var quality [][]qualityHistory = make([][]qualityHistory, s.Int32Count)
+// 	for i := range quality {
+// 		quality[i] = []qualityHistory{{value: 0, samples: 0}}
+// 	}
+
+// 	// check ID
+// 	res := bytes.Compare(buf[:length], s.ID[:])
+// 	if res != 0 {
+// 		// fmt.Println("ID no match", buf[:length], s.ID[:])
+// 		return errors.New("IDs did not match")
+// 	}
+
+// 	// decode timestamp
+// 	startTime := binary.BigEndian.Uint64(buf[length:])
+// 	length += 8
+
+// 	// decode sampling rate
+// 	// samplingRate := binary.BigEndian.Uint32(buf[length:])	// TODO restore for calculating timestamps
+// 	valUnsigned, lenB = binary.Uvarint(buf[length:])
+// 	samplingRate := uint32(valUnsigned)
+// 	if samplingRate == 99999999 {
+// 		fmt.Println("test")
+// 	}
+// 	length += lenB
+
+// 	// decode number of data samples
+// 	// samplesPerPacket := binary.BigEndian.Uint32(buf[length:])
+// 	valUnsigned, lenB = binary.Uvarint(buf[length:])
+// 	s.samplesPerPacket = uint32(valUnsigned)
+// 	length += lenB
+// 	// fmt.Println("samplesPerPacket:", samplesPerPacket, samplingRate)
+
+// 	// decode quality offset
+// 	qualityOffset := binary.BigEndian.Uint32(buf[length:])
+// 	length += 4
+
+// 	// initialise output structure
+// 	var data DatasetWithQuality = DatasetWithQuality{
+// 		T:      startTime,
+// 		Int32s: make([]int32, s.Int32Count),
+// 		Q:      make([]uint32, s.Int32Count),
+// 	}
+
+// 	length += s.decodeFirstSample(&data, &quality, buf, length, qualityOffset)
+
+// 	// send first set of samples
+// 	// slices within struct must be copied into new memory
+// 	// fmt.Println("  value", data.Int32s[0], "length:", length)
+// 	dataCopy := DatasetWithQuality{
+// 		T:      data.T,
+// 		Int32s: make([]int32, s.Int32Count),
+// 		Q:      make([]uint32, s.Int32Count),
+// 	}
+// 	copy(dataCopy.Int32s, data.Int32s)
+// 	copy(dataCopy.Q, data.Q)
+// 	s.Ch <- dataCopy
+// 	// time.Sleep(time.Millisecond * 1)
+// 	// data.Int32s[0] = -42
+
+// 	if s.samplesPerPacket == 1 {
+// 		// fmt.Println("done decoding message", data.T, samplesPerPacket, length, totalLength, qualityOffset)
+// 		// fmt.Println("encoded:", buf[:], len(buf))
+// 		return nil
+// 	}
+
+// 	// loop through remaining samples
+// 	var totalSamples uint32 = 1
+// 	var prevData DatasetWithQuality = DatasetWithQuality{}
+// 	for {
+// 		// TODO check IEC 61850 64-bit time spec
+// 		// TODO check STTP 64-bit time spec
+// 		// TODO calculate T from samplingRate and totalSamples)
+// 		//      UtcTime<SS SS SS SS QQ MM MM MM>
+// 		//      -7-2: 6.1.2.9 TimeStamp type
+// 		//      The UtcTime type shall be an OCTET STRING of length eight (8) octets. The value shall be encoded as defined in RFC 1305.
+// 		data.T = startTime + uint64(totalSamples)
+// 		// if data.T >= uint64(s.samplingRate) {
+// 		// 	data.T = data.T - uint64(s.samplingRate)
+// 		// }
+// 		for i := 0; i < s.Int32Count; i++ {
+// 			diff, lenB := binary.Varint(buf[length:])
+// 			// fmt.Println("  decoded diff:", diff, lenB)
+// 			// fmt.Println("    prev value:", data.Int32s[i], "new value:", data.Int32s[i]+int32(diff))
+// 			length += lenB
+// 			data.Int32s[i] = data.Int32s[i] + int32(diff)
+// 			// if len(quality[i]) > 1 {
+// 			// 	fmt.Println("Len > 1")
+// 			// }
+// 			data.Q[i], _ = getQualityFromHistory(&quality[i], totalSamples)
+// 		}
+
+// 		// copy and send data on channel
+// 		dataCopy := DatasetWithQuality{
+// 			T:      data.T,
+// 			Int32s: make([]int32, s.Int32Count),
+// 			Q:      make([]uint32, s.Int32Count),
+// 		}
+// 		copy(dataCopy.Int32s, data.Int32s)
+// 		copy(dataCopy.Q, data.Q)
+// 		s.Ch <- dataCopy
+
+// 		totalSamples++
+// 		if totalSamples >= s.samplesPerPacket {
+// 			// fmt.Println("done decoding message", data.T, totalSamples, samplesPerPacket, length, totalLength, qualityOffset)
+// 			// fmt.Println("encoded:", buf[:], len(buf))
+// 			return nil
+// 		}
+
+// 		prevData.T = data.T
+// 		copy(prevData.Int32s, data.Int32s)
+// 		copy(prevData.Q, data.Q)
+// 	}
+// }
+
+// DecodeToBuffer decodes to a pre-allocated buffer
+func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
+	var length int = 16
+	// var valSigned int64 = 0
+	var valUnsigned uint64 = 0
+	var lenB int = 0
 	var quality [][]qualityHistory = make([][]qualityHistory, s.Int32Count)
 	for i := range quality {
 		quality[i] = []qualityHistory{{value: 0, samples: 0}}
@@ -111,92 +318,27 @@ func (s *Decoder) DecodeToChannel(buf []byte, totalLength int) error {
 
 	// decode sampling rate
 	// samplingRate := binary.BigEndian.Uint32(buf[length:])	// TODO restore for calculating timestamps
-	length += 4
+	_, lenB = binary.Uvarint(buf[length:])
+	// samplingRate := uint32(valUnsigned)
+	// if samplingRate == 99999999 {
+	// 	fmt.Println("test")
+	// }
+	length += lenB
 
 	// decode number of data samples
-	samplesPerPacket := binary.BigEndian.Uint32(buf[length:])
-	length += 4
+	// samplesPerPacket := binary.BigEndian.Uint32(buf[length:])
+	valUnsigned, lenB = binary.Uvarint(buf[length:])
+	s.samplesPerPacket = uint32(valUnsigned)
+	length += lenB
+	// fmt.Println("samplesPerPacket:", samplesPerPacket, samplingRate)
 
 	// decode quality offset
 	qualityOffset := binary.BigEndian.Uint32(buf[length:])
 	length += 4
 
-	// initialise output structure
-	var data DatasetWithQuality = DatasetWithQuality{
-		T:      startTime,
-		Int32s: make([]int32, s.Int32Count),
-		Q:      make([]uint32, s.Int32Count),
-	}
+	length += s.decodeFirstSample(&s.Out[0], &quality, buf, length, qualityOffset)
 
-	// get first samples
-	for i := 0; i < s.Int32Count; i++ {
-		// TODO use varint?
-		data.Int32s[i] = int32(binary.BigEndian.Uint32(buf[length:]))
-		length += 4
-	}
-
-	// populate quality structure
-	lenQuality = qualityOffset
-	for i := 0; i < s.Int32Count; i++ {
-		val, lenB := binary.Uvarint(buf[lenQuality:])
-		quality[i][0].value = uint32(val)
-		lenQuality += uint32(lenB)
-		val, lenB = binary.Uvarint(buf[lenQuality:])
-		quality[i][0].samples = uint32(val)
-		lenQuality += uint32(lenB)
-		// fmt.Println("  decoded:", quality[i][0].value, quality[i][0].samples)
-
-		// TODO decoding data into quality seems to be the issue
-		if quality[i][0].samples != 0 {
-			// fmt.Println("  quality[i][0].samples != 0", quality[i][0].value, quality[i][0].samples)
-			// decode each quality change and store in structure
-			totalSamples := quality[i][0].samples
-			for j := 1; ; j++ {
-				// create and populate new array item
-				quality[i] = append(quality[i], qualityHistory{value: 0, samples: 0})
-
-				// fmt.Println(i, j, len(quality[i]), "totalSamples", totalSamples, "length:", lenQuality, totalLength)
-				// quality[i][j].value = binary.BigEndian.Uint32(buf[lenQuality:])
-				// lenQuality += 4
-				// quality[i][j].samples = binary.BigEndian.Uint32(buf[lenQuality:])
-				// lenQuality += 4
-				val, lenB := binary.Uvarint(buf[lenQuality:])
-				quality[i][j].value = uint32(val)
-				lenQuality += uint32(lenB)
-				val, lenB = binary.Uvarint(buf[lenQuality:])
-				quality[i][j].samples = uint32(val)
-				lenQuality += uint32(lenB)
-
-				fmt.Println("      decoded:", quality[i][j].value, quality[i][j].samples)
-
-				totalSamples += quality[i][j].samples
-				if totalSamples >= samplesPerPacket || j+1 >= len(quality[i]) {
-					break
-				}
-			}
-		}
-	}
-
-	// extract first quality value
-	for i := 0; i < s.Int32Count; i++ {
-		data.Q[i] = quality[i][0].value
-	}
-
-	// send first set of samples
-	// slices within struct must be copied into new memory
-	// fmt.Println("  value before sending on ch:", data.Int32s[0])
-	dataCopy := DatasetWithQuality{
-		T:      data.T,
-		Int32s: make([]int32, s.Int32Count),
-		Q:      make([]uint32, s.Int32Count),
-	}
-	copy(dataCopy.Int32s, data.Int32s)
-	copy(dataCopy.Q, data.Q)
-	s.Ch <- dataCopy
-	// time.Sleep(time.Millisecond * 1)
-	// data.Int32s[0] = -42
-
-	if samplesPerPacket == 1 {
+	if s.samplesPerPacket == 1 {
 		// fmt.Println("done decoding message", data.T, samplesPerPacket, length, totalLength, qualityOffset)
 		// fmt.Println("encoded:", buf[:], len(buf))
 		return nil
@@ -212,7 +354,7 @@ func (s *Decoder) DecodeToChannel(buf []byte, totalLength int) error {
 		//      UtcTime<SS SS SS SS QQ MM MM MM>
 		//      -7-2: 6.1.2.9 TimeStamp type
 		//      The UtcTime type shall be an OCTET STRING of length eight (8) octets. The value shall be encoded as defined in RFC 1305.
-		data.T = startTime + uint64(totalSamples)
+		s.Out[totalSamples].T = startTime + uint64(totalSamples)
 		// if data.T >= uint64(s.samplingRate) {
 		// 	data.T = data.T - uint64(s.samplingRate)
 		// }
@@ -221,41 +363,27 @@ func (s *Decoder) DecodeToChannel(buf []byte, totalLength int) error {
 			// fmt.Println("  decoded diff:", diff, lenB)
 			// fmt.Println("    prev value:", data.Int32s[i], "new value:", data.Int32s[i]+int32(diff))
 			length += lenB
-			data.Int32s[i] = data.Int32s[i] + int32(diff)
+			s.Out[totalSamples].Int32s[i] = s.Out[totalSamples].Int32s[i] + int32(diff)
 			// if len(quality[i]) > 1 {
 			// 	fmt.Println("Len > 1")
 			// }
-			data.Q[i], _ = getQualityFromHistory(&quality[i], totalSamples)
+			s.Out[totalSamples].Q[i], _ = getQualityFromHistory(&quality[i], totalSamples)
 		}
 
-		// copy and send data on channel
-		dataCopy := DatasetWithQuality{
-			T:      data.T,
-			Int32s: make([]int32, s.Int32Count),
-			Q:      make([]uint32, s.Int32Count),
-		}
-		copy(dataCopy.Int32s, data.Int32s)
-		copy(dataCopy.Q, data.Q)
-		s.Ch <- dataCopy
+		prevData.T = s.Out[totalSamples].T
+		copy(prevData.Int32s, s.Out[totalSamples].Int32s)
+		copy(prevData.Q, s.Out[totalSamples].Q)
 
 		totalSamples++
-		if totalSamples >= samplesPerPacket {
+		if totalSamples >= s.samplesPerPacket {
 			// fmt.Println("done decoding message", data.T, totalSamples, samplesPerPacket, length, totalLength, qualityOffset)
 			// fmt.Println("encoded:", buf[:], len(buf))
 			return nil
 		}
-
-		prevData.T = data.T
-		copy(prevData.Int32s, data.Int32s)
-		copy(prevData.Q, data.Q)
 	}
 }
 
 func getQualityFromHistory(q *[]qualityHistory, sample uint32) (uint32, error) {
-	// TODO review algorithm
-
-	// fmt.Println("    q:", q)
-
 	// simple case where quality does not change, so return the first value
 	if len(*q) == 1 {
 		// fmt.Println(sample, (*q)[0].value)
@@ -296,29 +424,43 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		s.len = 0
 		s.len += copy(s.buf[s.len:], s.ID[:])
 
+		// TODO
+		// if s.len != 16 {
+		// return errors.New("")
+		// }
+
 		// encode timestamp
 		binary.BigEndian.PutUint64(s.buf[s.len:], t)
 		s.len += 8
 
+		// TODO varint for some - match in decode
+
+		// TODO split into int32 and float32/64 streams?
+
 		// encode sampling rate
-		binary.BigEndian.PutUint32(s.buf[s.len:], uint32(s.samplingRate))
-		s.len += 4
+		// binary.BigEndian.PutUint32(s.buf[s.len:], uint32(s.samplingRate))
+		// s.len += 4
+		s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.samplingRate))
 
 		// TODO should encode number of variables, so that wireshark, etc, can interpret
 
 		// encode number of data samples
-		binary.BigEndian.PutUint32(s.buf[s.len:], uint32(s.samplesPerPacket))
-		s.len += 4
+		// binary.BigEndian.PutUint32(s.buf[s.len:], uint32(s.samplesPerPacket))
+		// s.len += 4
+		s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.samplesPerPacket))
 
 		// reserve space for the quality section offset
 		// need to encode offset to quality section to decode synchronously with data
 		s.qualityOffsetBytes = s.len
 		s.len += 4
+		// TODO can bytes required be reduced? 3 bytes, means max file size ~16 MB
+
+		s.HeaderBytes = s.len
 
 		// encode first set of values
 		for i := range data.Int32s {
-			binary.BigEndian.PutUint32(s.buf[s.len:], uint32(data.Int32s[i]))
-			s.len += 4
+			// binary.BigEndian.PutUint32(s.buf[s.len:], uint32(data.Int32s[i]))
+			s.len += binary.PutVarint(s.buf[s.len:], int64(data.Int32s[i]))
 			// save previous value
 			s.prevSamples.Int32s[i] = data.Int32s[i]
 			// fmt.Println("  encode first set of values:", s.len)
@@ -407,7 +549,6 @@ func (s *Encoder) Encode(data Dataset, q []uint32, t uint64) ([]byte, int) {
 		s.qualityOffsetBytes = 0
 		s.encodedSamples = 0
 		s.len = 0
-		s.dataLen = 0
 
 		// send data
 		return s.buf[0:finalLen], finalLen
