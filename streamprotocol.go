@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// TODO add delta-delta coding. different levels, depending on samplesPerMessage?
+// TODO delta-delta coding with different levels, depending on samplesPerMessage?
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -45,9 +45,10 @@ type Decoder struct {
 	samplingRate      int
 	samplesPerMessage int
 	Int32Count        int
-	Ch                chan DatasetWithQuality
+	startTimestamp    uint64
 	Out               []DatasetWithQuality
 	quality           [][]qualityHistory
+	// Ch                chan DatasetWithQuality
 }
 
 type qualityHistory struct {
@@ -89,7 +90,6 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		Int32Count:        int32Count,
 		samplingRate:      samplingRate,
 		samplesPerMessage: samplesPerMessage,
-		Ch:                nil,
 		Out:               make([]DatasetWithQuality, samplingRate),
 		quality:           make([][]qualityHistory, int32Count),
 	}
@@ -129,6 +129,9 @@ func (s *Decoder) decodeFirstSample(data *DatasetWithQuality, quality *[][]quali
 	var lenB int = 0
 	var lenQuality uint32 = qualityOffset
 	var length int = bufStart
+
+	// encode the starting timestamp for the first sample
+	data.T = s.startTimestamp
 
 	// get first samples
 	for i := 0; i < s.Int32Count; i++ {
@@ -312,11 +315,11 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	}
 
 	// decode timestamp
-	startTime := binary.BigEndian.Uint64(buf[length:])
+	s.startTimestamp = binary.BigEndian.Uint64(buf[length:])
 	length += 8
 
 	// decode sampling rate
-	// _, lenB = binary.Uvarint(buf[length:]) // TODO restore for calculating timestamps
+	// _, lenB = binary.Uvarint(buf[length:])
 	// length += lenB
 
 	// decode number of variables
@@ -345,16 +348,10 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	var totalSamples int = 1
 	var prevData DatasetWithQuality = DatasetWithQuality{}
 	for {
-		// TODO check IEC 61850 64-bit time spec
-		// TODO check STTP 64-bit time spec
-		// TODO calculate T from samplingRate and totalSamples)
-		//      UtcTime<SS SS SS SS QQ MM MM MM>
-		//      -7-2: 6.1.2.9 TimeStamp type
-		//      The UtcTime type shall be an OCTET STRING of length eight (8) octets. The value shall be encoded as defined in RFC 1305.
-		s.Out[totalSamples].T = startTime + uint64(totalSamples)
-		// if data.T >= uint64(s.samplingRate) {
-		// 	data.T = data.T - uint64(s.samplingRate)
-		// }
+		// encode the sample number relative to the starting timestamp
+		// the representations used IEC 61850 and STTP have low accuracy for fractional times e.g. for 14.4 kHz sampling
+		s.Out[totalSamples].T = uint64(totalSamples)
+
 		for i := 0; i < s.Int32Count; i++ {
 			diff, lenB := binary.Varint(buf[length:])
 			// fmt.Println("  decoded diff:", diff, lenB)
@@ -379,6 +376,23 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		}
 	}
 }
+
+// func fromTimestamp(t uint64) (uint32, float64) {
+// 	var SOC uint32 = 0
+// 	var FRACSEC float64 = 0.0
+
+// 	SOC = uint32((t & 0xFFFFFFFF00000000) >> 32)
+// 	FRACSECInt := uint32(t & 0x00FFFFFF)
+// 	FRACSEC = float64(FRACSECInt) / 16777216.0
+
+// 	return SOC, FRACSEC
+// }
+
+// func toTimestamp(SOC uint32, FRACSEC float64) uint64 {
+// 	var t uint64 = 0
+
+// 	return t
+// }
 
 func getQualityFromHistory(q *[]qualityHistory, sample int) (uint32, error) {
 	// simple case where quality does not change, so return the first value
