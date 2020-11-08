@@ -43,7 +43,7 @@ type Encoder struct {
 type Decoder struct {
 	ID                uuid.UUID
 	samplingRate      int
-	samplesPerMessage uint32
+	samplesPerMessage int
 	Int32Count        int
 	Ch                chan DatasetWithQuality
 	Out               []DatasetWithQuality
@@ -83,14 +83,15 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 }
 
 // NewDecoder creates a stream protocol decoder instance for pre-allocated output
-func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int) *Decoder {
+func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessage int) *Decoder {
 	d := &Decoder{
-		ID:           ID,
-		Int32Count:   int32Count,
-		samplingRate: samplingRate,
-		Ch:           nil,
-		Out:          make([]DatasetWithQuality, samplingRate),
-		quality:      make([][]qualityHistory, int32Count),
+		ID:                ID,
+		Int32Count:        int32Count,
+		samplingRate:      samplingRate,
+		samplesPerMessage: samplesPerMessage,
+		Ch:                nil,
+		Out:               make([]DatasetWithQuality, samplingRate),
+		quality:           make([][]qualityHistory, int32Count),
 	}
 
 	// initialise each set of outputs in data stucture
@@ -150,7 +151,7 @@ func (s *Decoder) decodeFirstSample(data *DatasetWithQuality, quality *[][]quali
 		if (*quality)[i][0].samples != 0 {
 			// fmt.Println("  quality[i][0].samples != 0", quality[i][0].value, quality[i][0].samples)
 			// decode each quality change and store in structure
-			totalSamples := (*quality)[i][0].samples
+			totalSamples := int((*quality)[i][0].samples)
 			for j := 1; ; j++ {
 				// create and populate new array item
 				(*quality)[i] = append((*quality)[i], qualityHistory{value: 0, samples: 0})
@@ -164,7 +165,7 @@ func (s *Decoder) decodeFirstSample(data *DatasetWithQuality, quality *[][]quali
 				lenQuality += uint32(lenB)
 				// fmt.Println("      decoded:", quality[i][j].value, quality[i][j].samples)
 
-				totalSamples += (*quality)[i][j].samples
+				totalSamples += int((*quality)[i][j].samples)
 				if totalSamples >= s.samplesPerMessage || j+1 >= len((*quality)[i]) {
 					break
 				}
@@ -300,8 +301,8 @@ func (s *Decoder) decodeFirstSample(data *DatasetWithQuality, quality *[][]quali
 // DecodeToBuffer decodes to a pre-allocated buffer
 func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	var length int = 16
-	var valUnsigned uint64 = 0
-	var lenB int = 0
+	// var valUnsigned uint64 = 0
+	// var lenB int = 0
 
 	// check ID
 	res := bytes.Compare(buf[:length], s.ID[:])
@@ -315,17 +316,17 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	length += 8
 
 	// decode sampling rate
-	_, lenB = binary.Uvarint(buf[length:]) // TODO restore for calculating timestamps
-	length += lenB
+	// _, lenB = binary.Uvarint(buf[length:]) // TODO restore for calculating timestamps
+	// length += lenB
 
 	// decode number of variables
-	_, lenB = binary.Uvarint(buf[length:])
-	length += lenB
+	// _, lenB = binary.Uvarint(buf[length:])
+	// length += lenB
 
 	// decode number of data samples
-	valUnsigned, lenB = binary.Uvarint(buf[length:])
-	s.samplesPerMessage = uint32(valUnsigned)
-	length += lenB
+	// valUnsigned, lenB = binary.Uvarint(buf[length:])
+	// s.samplesPerMessage = int(valUnsigned)
+	// length += lenB
 	// fmt.Println("samplesPerMessage:", samplesPerMessage, samplingRate)
 
 	// decode quality offset
@@ -341,7 +342,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	}
 
 	// loop through remaining samples
-	var totalSamples uint32 = 1
+	var totalSamples int = 1
 	var prevData DatasetWithQuality = DatasetWithQuality{}
 	for {
 		// TODO check IEC 61850 64-bit time spec
@@ -379,15 +380,15 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	}
 }
 
-func getQualityFromHistory(q *[]qualityHistory, sample uint32) (uint32, error) {
+func getQualityFromHistory(q *[]qualityHistory, sample int) (uint32, error) {
 	// simple case where quality does not change, so return the first value
 	if len(*q) == 1 {
 		// fmt.Println(sample, (*q)[0].value)
 		return (*q)[0].value, nil
 	}
 
-	var startRange uint32 = 0
-	var endRange uint32 = 0
+	var startRange int = 0
+	var endRange int = 0
 	for i := range *q {
 		if (*q)[i].samples == 0 {
 			// if i > 0 {
@@ -396,7 +397,7 @@ func getQualityFromHistory(q *[]qualityHistory, sample uint32) (uint32, error) {
 			return (*q)[i].value, nil
 		}
 		startRange = endRange
-		endRange += (*q)[i].samples
+		endRange += int((*q)[i].samples)
 		if sample >= startRange && sample < endRange {
 			// if i > 0 {
 			// fmt.Println(sample, (*q)[i].samples, (*q)[i].value, position)
@@ -420,13 +421,13 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 		s.len += 8
 
 		// encode sampling rate
-		s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.samplingRate))
+		// s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.samplingRate))
 
 		// encode number of variables, so that wireshark, etc, can interpret
-		s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.Int32Count))
+		// s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.Int32Count))
 
 		// encode number of data samples
-		s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.samplesPerMessage))
+		// s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.samplesPerMessage))
 
 		// reserve space for the quality section offset
 		// need to encode offset to quality section to decode synchronously with data

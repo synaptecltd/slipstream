@@ -60,7 +60,7 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 
 				// create encoder and decoder
 				stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-				streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate)
+				streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 				// var done sync.WaitGroup
 
@@ -153,7 +153,7 @@ func BenchmarkDecode(b1 *testing.B) {
 
 				// create encoder and decoder
 				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate)
+				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 				encodeStats := encodeStats{}
 
@@ -350,7 +350,7 @@ func TestEncodeDecode(t *testing.T) {
 			// create encoder and decoder
 			stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 			// streamDecoder := streamprotocol.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
-			streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate)
+			streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 			// var done sync.WaitGroup
 
@@ -381,7 +381,7 @@ func TestWrongID(t *testing.T) {
 			// create encoder and decoder
 			stream := streamprotocol.NewEncoder(ID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
 			// streamDecoder := streamprotocol.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
-			streamDecoder := streamprotocol.NewDecoder(wrongID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate)
+			streamDecoder := streamprotocol.NewDecoder(wrongID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
 
 			// var done sync.WaitGroup
 
