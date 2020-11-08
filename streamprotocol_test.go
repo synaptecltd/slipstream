@@ -83,6 +83,100 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 	}
 }
 
+func BenchmarkEncode(b1 *testing.B) {
+	keys := make([]string, 0, len(tests))
+	for k := range tests {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
+		b1.Run(name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+
+				test := tests[name]
+
+				// settings for IED emulator
+				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+
+				// initialise data structure for input data
+				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+
+				// create encoder and decoder
+				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				// dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate)
+
+				encodeStats := encodeStats{}
+
+				b.StartTimer()
+
+				for i := range data {
+					_, len, _ := enc.Encode(&data[i])
+
+					if len > 0 {
+						// b.StopTimer()
+
+						//  generate average stats
+						encodeStats.iterations++
+						encodeStats.totalBytes += len
+						encodeStats.totalHeaderBytes += enc.HeaderBytes
+
+						// fmt.Println("decoding")
+						// dec.DecodeToBuffer(buf, len)
+					}
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkDecode(b1 *testing.B) {
+	keys := make([]string, 0, len(tests))
+	for k := range tests {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
+		b1.Run(name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+
+				test := tests[name]
+
+				// settings for IED emulator
+				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+
+				// initialise data structure for input data
+				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+
+				// create encoder and decoder
+				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate)
+
+				encodeStats := encodeStats{}
+
+				for i := range data {
+					buf, len, _ := enc.Encode(&data[i])
+
+					if len > 0 {
+						b.StartTimer()
+
+						//  generate average stats
+						encodeStats.iterations++
+						encodeStats.totalBytes += len
+						encodeStats.totalHeaderBytes += enc.HeaderBytes
+
+						// fmt.Println("decoding")
+						dec.DecodeToBuffer(buf, len)
+					}
+				}
+			}
+		})
+	}
+}
+
 func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 	return &iedemulator.IEDEmulator{
 		SamplingRate: samplingRate,
@@ -169,12 +263,17 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	encodeStats := encodeStats{}
 
 	for i := range *data {
-		dataset := streamprotocol.Dataset{
-			Int32s: make([]int32, len((*data)[i].Int32s)),
-		}
-		copy(dataset.Int32s, (*data)[i].Int32s)
+		// dataset := streamprotocol.DatasetWithQuality{
+		// 	Int32s: make([]int32, len((*data)[i].Int32s)),
+		// 	Q:      make([]uint32, len((*data)[i].Int32s)),
+		// }
+		// copy(data[i].Int32s, (*data)[i].Int32s)
+		// copy(dataset.Q, (*data)[i].Q)
 		// fmt.Println("ts in:", data[i].T)
-		buf, len := enc.Encode(dataset, (*data)[i].Q, (*data)[i].T)
+		buf, len, errorEncode := enc.Encode(&((*data)[i]))
+		if errorEncode != nil {
+			return errorEncode
+		}
 
 		if len > 0 {
 			//  generate average stats
@@ -183,9 +282,9 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 			encodeStats.totalHeaderBytes += enc.HeaderBytes
 
 			// fmt.Println("decoding")
-			err := dec.DecodeToBuffer(buf, len)
-			if err != nil {
-				return err
+			errDecode := dec.DecodeToBuffer(buf, len)
+			if errDecode != nil {
+				return errDecode
 			}
 		}
 	}
