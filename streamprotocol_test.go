@@ -109,10 +109,10 @@ func BenchmarkEncode(b1 *testing.B) {
 
 				encodeStats := encodeStats{}
 
-				b.StartTimer()
-
 				for i := range data {
+					b.StartTimer()
 					_, len, _ := enc.Encode(&data[i])
+					b.StopTimer()
 
 					if len > 0 {
 						// b.StopTimer()
@@ -161,15 +161,18 @@ func BenchmarkDecode(b1 *testing.B) {
 					buf, len, _ := enc.Encode(&data[i])
 
 					if len > 0 {
-						b.StartTimer()
 
 						//  generate average stats
 						encodeStats.iterations++
 						encodeStats.totalBytes += len
 						encodeStats.totalHeaderBytes += enc.HeaderBytes
 
+						b.StartTimer()
+
 						// fmt.Println("decoding")
 						dec.DecodeToBuffer(buf, len)
+
+						b.StopTimer()
 					}
 				}
 			}
@@ -192,7 +195,7 @@ func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 			HarmonicAngs:    []float64{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, //{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-			NoiseMax:        0.00,
+			NoiseMax:        0.001,
 		},
 	}
 }
@@ -212,7 +215,7 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 		// compute emulated waveform data
 		ied.Step()
 
-		// // calculate timestamp
+		// calculate timestamp
 		// bs := make([]byte, 8)
 		// // TODO big endian?
 		// binary.LittleEndian.PutUint32(bs, soc)
@@ -263,12 +266,6 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	encodeStats := encodeStats{}
 
 	for i := range *data {
-		// dataset := streamprotocol.DatasetWithQuality{
-		// 	Int32s: make([]int32, len((*data)[i].Int32s)),
-		// 	Q:      make([]uint32, len((*data)[i].Int32s)),
-		// }
-		// copy(data[i].Int32s, (*data)[i].Int32s)
-		// copy(dataset.Q, (*data)[i].Q)
 		// fmt.Println("ts in:", data[i].T)
 		buf, len, errorEncode := enc.Encode(&((*data)[i]))
 		if errorEncode != nil {
@@ -309,17 +306,12 @@ func listenAndCheckDecoder(t *testing.T, ch chan streamprotocol.DatasetWithQuali
 			return
 		case d := <-ch:
 			i := d.T
-			// compare decoded output
 
-			// TODO needs more complicated method for timestamp to slice offset for comparison with data param
-			//      or just set to sample number for test
-			// fmt.Println(i, d.T)
+			// compare decoded output
 			for j := 0; j < 1; j++ {
 				if t != nil {
-					// if i == 999999999 {
 					assert.Equal(t, (*data)[i].Int32s[j], d.Int32s[j])
 					assert.Equal(t, (*data)[i].Q[j], d.Q[j])
-					// }
 				}
 				// if data[i].Int32s[j] != d.Int32s[j] {
 				// 	t.Errorf("T = %d: data[i].Int32s[j] (%d) != d.Int32s[j] (%d)", i, data[i].Int32s[j], d.Int32s[j])
