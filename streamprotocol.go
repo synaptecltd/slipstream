@@ -27,7 +27,7 @@ type DatasetWithQuality struct {
 type Encoder struct {
 	ID                 uuid.UUID
 	samplingRate       int
-	samplesPerMessage  int
+	SamplesPerMessage  int
 	encodedSamples     int
 	buf                []byte
 	len                int
@@ -65,7 +65,7 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	s := &Encoder{
 		ID:                ID,
 		samplingRate:      samplingRate,
-		samplesPerMessage: samplesPerMessage,
+		SamplesPerMessage: samplesPerMessage,
 		buf:               make([]byte, bufSize),
 		Int32Count:        int32Count,
 	}
@@ -90,7 +90,7 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		Int32Count:        int32Count,
 		samplingRate:      samplingRate,
 		samplesPerMessage: samplesPerMessage,
-		Out:               make([]DatasetWithQuality, samplingRate),
+		Out:               make([]DatasetWithQuality, samplesPerMessage),
 		quality:           make([][]qualityHistory, int32Count),
 	}
 
@@ -503,7 +503,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	}
 
 	s.encodedSamples++
-	if s.encodedSamples >= s.samplesPerMessage {
+	if s.encodedSamples >= s.SamplesPerMessage {
 		// encode the start offset of the quality section in the header
 		// binary.BigEndian.PutUint32(s.buf[s.qualityOffsetBytes:], uint32(s.len))
 
@@ -549,6 +549,49 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	}
 
 	return nil, 0, nil
+}
+
+// EndEncode forces the encoding process to stop, even more samples are expected
+func (s *Encoder) EndEncode() ([]byte, int, error) {
+	// encode final quality values using RLE
+	for i := range s.qualityHistory {
+		// override final number of samples to zero
+		s.qualityHistory[i][len(s.qualityHistory[i])-1].samples = 0
+		// fmt.Println("override:", len(s.qualityHistory[i]), s.qualityHistory[i], s.qualityHistory[i][len(s.qualityHistory[i])-1].samples, "value:", s.qualityHistory[i][len(s.qualityHistory[i])-1].value)
+
+		// TODO can refactor if doing override above
+		if len(s.qualityHistory[i]) == 1 {
+			// special case, no change in quality value (encode samples as 0)
+			lenB := binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][0].value))
+			s.len += lenB
+			lenB = binary.PutUvarint(s.buf[s.len:], 0)
+			s.len += lenB
+		} else {
+			// otherwise, encode each value
+			// fmt.Println("encode multiple Q values", len(s.qualityHistory[i]))
+			for j := range s.qualityHistory[i] {
+				lenB := binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].value))
+				s.len += lenB
+				lenB = binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].samples))
+				s.len += lenB
+			}
+		}
+	}
+
+	// reset quality history
+	for i := range s.qualityHistory {
+		s.qualityHistory[i][0].value = 0
+		s.qualityHistory[i][0].samples = 0
+	}
+
+	// reset previous values
+	finalLen := s.len
+	s.qualityOffsetBytes = 0
+	s.encodedSamples = 0
+	s.len = 0
+
+	// send data
+	return s.buf[0:finalLen], finalLen, nil
 }
 
 // // modified from https://techoverflow.net/blog/2013/01/25/efficiently-encoding-variable-length-integers-in-cc/

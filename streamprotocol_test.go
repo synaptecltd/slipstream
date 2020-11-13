@@ -31,6 +31,7 @@ var tests = map[string]struct {
 	"4000-50":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
 	"4000-60":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 67},
 	"4000-4000":   {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
+	"40000-40000": {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
 	"4-2q":        {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
 	"4000-4000q":  {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 	"14400-14400": {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
