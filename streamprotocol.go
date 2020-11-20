@@ -551,6 +551,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	return nil, 0, nil
 }
 
+// TODO include in Encode()
 // EndEncode forces the encoding process to stop, even more samples are expected
 func (s *Encoder) EndEncode() ([]byte, int, error) {
 	// encode final quality values using RLE
