@@ -3,9 +3,7 @@ package streamprotocol_test
 import (
 	"math"
 	"sort"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -23,22 +21,22 @@ var tests = map[string]struct {
 	samplesPerMessage int
 	qualityChange     bool
 }{
-	"10-1":  {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
-	"10-2":  {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
-	"10-10": {samplingRate: 4000, countOfVariables: 8, samples: 16, samplesPerMessage: 16},
-	// "4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
-	// "4800-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
-	// "4800-6":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 6},
-	// "4000-50":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
-	// "4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 67},
-	// "4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
-	// "40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
-	// "4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
-	// "4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
-	// "14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
-	"14400-14400": {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
-	// "14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
-	// "150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
+	"10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
+	"10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
+	"10-10":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
+	"4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
+	"4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
+	"4800-6":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
+	"4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
+	"4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 67},
+	"4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
+	"40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
+	"4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
+	"4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
+	"14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
+	"14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
+	"14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
+	"150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 }
 
 func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
@@ -185,7 +183,6 @@ func BenchmarkDecode(b1 *testing.B) {
 					buf, len, _ := enc.Encode(&data[i])
 
 					if len > 0 {
-
 						//  generate average stats
 						encodeStats.iterations++
 						encodeStats.totalBytes += len
@@ -267,25 +264,45 @@ type encodeStats struct {
 
 func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int) error {
 	encodeStats := encodeStats{}
+	totalSamplesRead := 0
 
 	for i := range *data {
 		// fmt.Println("ts in:", data[i].T)
-		buf, len, errorEncode := enc.Encode(&((*data)[i]))
+		buf, length, errorEncode := enc.Encode(&((*data)[i]))
 		if errorEncode != nil {
 			return errorEncode
 		}
 
-		if len > 0 {
+		if length > 0 {
 			//  generate average stats
 			encodeStats.iterations++
-			encodeStats.totalBytes += len
+			encodeStats.totalBytes += length
 			encodeStats.totalHeaderBytes += 24
 
 			// fmt.Println("decoding")
-			errDecode := dec.DecodeToBuffer(buf, len)
+			errDecode := dec.DecodeToBuffer(buf, length)
 			if errDecode != nil {
 				return errDecode
 			}
+
+			// compare decoded output
+			if t != nil {
+				for i := range dec.Out {
+					for j := 0; j < dec.Int32Count; j++ {
+						// fmt.Println((*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j])
+						if !assert.Equal(t, (*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j]) {
+							t.FailNow()
+						}
+						// TODO re-enable
+						// if !assert.Equal(t, (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j]) {
+						// 	t.FailNow()
+						// }
+
+					}
+				}
+			}
+
+			totalSamplesRead += len(dec.Out)
 		}
 	}
 
@@ -306,31 +323,31 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	return nil
 }
 
-func listenAndCheckDecoder(t *testing.T, ch chan streamprotocol.DatasetWithQuality, data *[]streamprotocol.DatasetWithQuality, wg *sync.WaitGroup) {
-	// defer close(streamDecoder.Ch)
-	for {
-		select {
-		case <-time.After(1 * time.Microsecond):
-			wg.Done()
-			return
-		case d := <-ch:
-			i := d.T
+// func listenAndCheckDecoder(t *testing.T, ch chan streamprotocol.DatasetWithQuality, data *[]streamprotocol.DatasetWithQuality, wg *sync.WaitGroup) {
+// 	// defer close(streamDecoder.Ch)
+// 	for {
+// 		select {
+// 		case <-time.After(1 * time.Microsecond):
+// 			wg.Done()
+// 			return
+// 		case d := <-ch:
+// 			i := d.T
 
-			// compare decoded output
-			for j := 0; j < 1; j++ {
-				if t != nil {
-					assert.Equal(t, (*data)[i].Int32s[j], d.Int32s[j])
-					assert.Equal(t, (*data)[i].Q[j], d.Q[j])
-				}
-				// if data[i].Int32s[j] != d.Int32s[j] {
-				// 	t.Errorf("T = %d: data[i].Int32s[j] (%d) != d.Int32s[j] (%d)", i, data[i].Int32s[j], d.Int32s[j])
-				// } else {
-				// 	t.Logf("T = %d: data[i].Int32s[j] (%d) == d.Int32s[j] (%d) (ok)", i, data[i].Int32s[j], d.Int32s[j])
-				// }
-			}
-		}
-	}
-}
+// 			// compare decoded output
+// 			for j := 0; j < 1; j++ {
+// 				if t != nil {
+// 					assert.Equal(t, (*data)[i].Int32s[j], d.Int32s[j])
+// 					assert.Equal(t, (*data)[i].Q[j], d.Q[j])
+// 				}
+// 				// if data[i].Int32s[j] != d.Int32s[j] {
+// 				// 	t.Errorf("T = %d: data[i].Int32s[j] (%d) != d.Int32s[j] (%d)", i, data[i].Int32s[j], d.Int32s[j])
+// 				// } else {
+// 				// 	t.Logf("T = %d: data[i].Int32s[j] (%d) == d.Int32s[j] (%d) (ok)", i, data[i].Int32s[j], d.Int32s[j])
+// 				// }
+// 			}
+// 		}
+// 	}
+// }
 
 func TestEncodeDecode(t *testing.T) {
 	// settings for stream protocol
