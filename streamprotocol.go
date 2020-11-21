@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jwilder/encoding/simple8b"
 )
 
 // TODO delta-delta coding with different levels, depending on samplesPerMessage?
@@ -26,17 +28,19 @@ type DatasetWithQuality struct {
 // Encoder defines a stream protocol instance
 type Encoder struct {
 	ID                 uuid.UUID
-	samplingRate       int
+	SamplingRate       int
 	SamplesPerMessage  int
 	encodedSamples     int
 	buf                []byte
 	len                int
-	HeaderBytes        int
 	Int32Count         int
 	prevSamples        Dataset
 	prevDiff           Dataset
 	qualityHistory     [][]qualityHistory
 	qualityOffsetBytes int
+	usingSimple8b      bool
+	simpleEnc          *simple8b.Encoder
+	diffs              [][]uint64
 }
 
 // Decoder defines a stream protocol instance for decoding
@@ -48,6 +52,7 @@ type Decoder struct {
 	startTimestamp    uint64
 	Out               []DatasetWithQuality
 	quality           [][]qualityHistory
+	usingSimple8b     bool
 	// Ch                chan DatasetWithQuality
 }
 
@@ -64,11 +69,22 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 
 	s := &Encoder{
 		ID:                ID,
-		samplingRate:      samplingRate,
+		SamplingRate:      samplingRate,
 		SamplesPerMessage: samplesPerMessage,
 		buf:               make([]byte, bufSize),
 		Int32Count:        int32Count,
+		simpleEnc:         simple8b.NewEncoder(),
 	}
+
+	// TODO may need threshold to be determined along with samplingRate
+	if samplesPerMessage > 16 {
+		s.usingSimple8b = true
+		s.diffs = make([][]uint64, int32Count)
+		for i := range s.diffs {
+			s.diffs[i] = make([]uint64, samplesPerMessage)
+		}
+	}
+
 	s.prevSamples.Int32s = make([]int32, int32Count)
 	s.prevDiff.Int32s = make([]int32, int32Count)
 
@@ -92,6 +108,11 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		samplesPerMessage: samplesPerMessage,
 		Out:               make([]DatasetWithQuality, samplesPerMessage),
 		quality:           make([][]qualityHistory, int32Count),
+	}
+
+	// TODO may need threshold to be determined along with samplingRate
+	if samplesPerMessage > 16 {
+		d.usingSimple8b = true
 	}
 
 	// initialise each set of outputs in data stucture
@@ -428,6 +449,12 @@ func getQualityFromHistory(q *[]qualityHistory, sample int) (uint32, error) {
 	return (*q)[len(*q)-1].value, errors.New("Could not decode quality value")
 }
 
+func zigZagEncode64(x int64) uint64 {
+	return uint64(uint64(x<<1) ^ uint64((int64(x) >> 63)))
+}
+
+// TODO complete simple-8b encode and decode
+
 // Encode encodes the next set of samples
 func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	if s.encodedSamples == 0 {
@@ -453,8 +480,6 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 		// s.qualityOffsetBytes = s.len
 		// s.len += 4
 
-		s.HeaderBytes = s.len
-
 		// encode first set of values
 		for i := range data.Int32s {
 			// binary.BigEndian.PutUint32(s.buf[s.len:], uint32(data.Int32s[i]))
@@ -462,6 +487,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 			// save previous value
 			s.prevSamples.Int32s[i] = data.Int32s[i]
 			// fmt.Println("  encode first set of values:", s.len)
+			s.diffs[i][s.encodedSamples] = zigZagEncode64(int64(data.Int32s[i]))
 		}
 
 		// record first set of quality
@@ -477,6 +503,9 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				lenB := binary.PutVarint(s.buf[s.len:], int64(diff))
 				s.len += lenB
 
+				// s.simpleEnc.Write(uint64(diff))
+				s.diffs[i][s.encodedSamples] = zigZagEncode64(int64(diff))
+
 				// save previous value
 				s.prevSamples.Int32s[i] = data.Int32s[i]
 				s.prevDiff.Int32s[i] = diff
@@ -487,6 +516,9 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				// fmt.Println("values:", s.encodedSamples, data.Int32s[i], s.prevSamples.Int32s[i], diff)
 				lenB := binary.PutVarint(s.buf[s.len:], int64(diff2))
 				s.len += lenB
+
+				// s.simpleEnc.Write(uint64(diff2))
+				s.diffs[i][s.encodedSamples] = zigZagEncode64(int64(diff2))
 
 				// save previous value
 				s.prevSamples.Int32s[i] = data.Int32s[i]
@@ -506,6 +538,22 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	if s.encodedSamples >= s.SamplesPerMessage {
 		// encode the start offset of the quality section in the header
 		// binary.BigEndian.PutUint32(s.buf[s.qualityOffsetBytes:], uint32(s.len))
+
+		simpleTotalBytes := 0
+
+		for i := range s.diffs {
+			// before := len(s.diffs[i])
+			encoded := make([]uint64, s.SamplesPerMessage)
+			copy(encoded, s.diffs[i])
+			out, err := simple8b.EncodeAll(encoded)
+			if err != nil {
+				fmt.Println(err)
+			}
+			// fmt.Println(len(out), before)
+			simpleTotalBytes += len(out) * 8
+		}
+
+		fmt.Println(simpleTotalBytes, s.len-24)
 
 		// encode final quality values using RLE
 		for i := range s.qualityHistory {
