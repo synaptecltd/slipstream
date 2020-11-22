@@ -49,7 +49,7 @@ The next thing to encode is the first sample of each variable. Then, each sample
 
 # Compression performance
 
-Compression performance can typically reduce data to about 15% of the theoretical uncompressed sample size (assuming 4 bytes for data, 4 bytes for quality, and 8 bytes for timestamp). Higher sampling rate can compress down to <10%. Shorter messages with fewer samples will achieve compression of 20-30%. Comared to IEC 61850-9-2 SV, the performance is even better due to the additional overhead and repeated data inherent in the ASDU stucture. For example, sampling at 14.4 kHz with 6 samples (ASDUs) per message requires about 589 bytes for SV (including Ethernet header, but not including the "RefrTm" timestamp). This new protocol only requires about 120 bytes to convey the same information.
+Compression performance can typically reduce data to about 15% of the theoretical uncompressed sample size (assuming 4 bytes for data, 4 bytes for quality, and 8 bytes for timestamp). Higher sampling rate can compress down to <5%, often requiring less than 1 byte per new sample on average. Shorter messages with fewer samples will achieve compression of 15-25%. Comared to IEC 61850-9-2 SV, the performance is even better due to the additional overhead and repeated data inherent in the SV ASDU stucture. For example, sampling at 14.4 kHz with 6 samples (ASDUs) per message (using the "LE" dataset with 8 variables) requires about 589 bytes for SV (including Ethernet header, but not including the "RefrTm" timestamp). This new protocol only requires about 120 bytes to convey the same information.
 
 The protocol compression tends to perform better for higher sampling rates, because the difference between samples is less and, on average, fewer bytes are required. Similarly, the protocol compression tends to perform worse for larger RMS values of voltage and current because the differences between samples is greater.
 
@@ -64,6 +64,8 @@ Decoders must have knowledge of the encoding parameters. This means that Wiresha
 It is not possible to decode the quality values until all the data values in a message are decoded first.
 
 It is assumed that three-phase quantities should also include a neutral component, similar to the IEC 61850 "LE" profile.
+
+The IEC 61850-9-2 SV protocol allows some flexibility. For example, in principle, ASDUs in the same message could be mixed from different datasets. This new protocol does not allow this. However, it would be simpler modify the SV dataset to encompass the additional data, rather than having multiple dataset, or send separate SV streams. It would make also make it easier to encode and decode, compared to mixing ASDU from different datasets.
 
 # References
 

@@ -30,13 +30,13 @@ var tests = map[string]struct {
 	"4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
 	"4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 67},
 	"4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
-	"40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
-	"4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
-	"4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 	"14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
 	"14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
-	"14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
+	"40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
 	"150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
+	"4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
+	"4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
+	"14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
 }
 
 func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
@@ -47,14 +47,14 @@ func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 		Ts:           1 / float64(samplingRate),
 		V: iedemulator.ThreePhaseEmulation{
 			PosSeqMag: 275000.0 / math.Sqrt(3) * math.Sqrt(2),
-			// NoiseMax:  0.001,
+			// NoiseMax:  0.00001,
 		},
 		I: iedemulator.ThreePhaseEmulation{
 			PosSeqMag:       500.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 			HarmonicAngs:    []float64{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, //{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-			// NoiseMax: 0.001,
+			// NoiseMax:        0.0001,
 		},
 	}
 }
@@ -69,9 +69,7 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 	for _, name := range keys {
 		b1.Run(name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				if b != nil {
-					b.StopTimer()
-				}
+				b.StopTimer()
 
 				test := tests[name]
 
@@ -85,22 +83,11 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 				stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 				streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
-				// var done sync.WaitGroup
-
-				// create thread to decode
-				// done.Add(1)
-				// go listenAndCheckDecoder(nil, streamDecoder.Ch, &data, &done)
-
-				if b != nil {
-					b.StartTimer()
-				}
+				b.StartTimer()
 
 				// encode the data
 				// when each message is complete, decode
 				encodeAndDecode(nil, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage)
-
-				// wait for decoder thread to complete
-				// done.Wait()
 			}
 		})
 	}
@@ -128,24 +115,21 @@ func BenchmarkEncode(b1 *testing.B) {
 
 				// create encoder and decoder
 				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-				// dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate)
+				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
-				encodeStats := encodeStats{}
-
-				for i := range data {
-					b.StartTimer()
-					_, len, _ := enc.Encode(&data[i])
-					b.StopTimer()
+				// calling b.StartTimer() often slows things down
+				b.StartTimer()
+				for d := range data {
+					buf, len, _ := enc.Encode(&data[d])
 
 					if len > 0 {
-						// b.StopTimer()
-
 						//  generate average stats
-						encodeStats.iterations++
-						encodeStats.totalBytes += len
+						// encodeStats.iterations++
+						// encodeStats.totalBytes += len
 
-						// fmt.Println("decoding")
-						// dec.DecodeToBuffer(buf, len)
+						b.StopTimer()
+						dec.DecodeToBuffer(buf, len)
+						b.StartTimer()
 					}
 				}
 			}
@@ -177,21 +161,12 @@ func BenchmarkDecode(b1 *testing.B) {
 				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
-				encodeStats := encodeStats{}
-
-				for i := range data {
-					buf, len, _ := enc.Encode(&data[i])
+				for d := range data {
+					buf, len, _ := enc.Encode(&data[d])
 
 					if len > 0 {
-						//  generate average stats
-						encodeStats.iterations++
-						encodeStats.totalBytes += len
-
 						b.StartTimer()
-
-						// fmt.Println("decoding")
 						dec.DecodeToBuffer(buf, len)
-
 						b.StopTimer()
 					}
 				}
@@ -267,7 +242,6 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	totalSamplesRead := 0
 
 	for i := range *data {
-		// fmt.Println("ts in:", data[i].T)
 		buf, length, errorEncode := enc.Encode(&((*data)[i]))
 		if errorEncode != nil {
 			return errorEncode
@@ -279,7 +253,6 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 			encodeStats.totalBytes += length
 			encodeStats.totalHeaderBytes += 24
 
-			// fmt.Println("decoding")
 			errDecode := dec.DecodeToBuffer(buf, length)
 			if errDecode != nil {
 				return errDecode
@@ -289,7 +262,6 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 			if t != nil {
 				for i := range dec.Out {
 					for j := 0; j < dec.Int32Count; j++ {
-						// fmt.Println((*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j])
 						if !assert.Equal(t, (*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j]) {
 							t.FailNow()
 						}
