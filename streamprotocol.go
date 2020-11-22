@@ -56,9 +56,8 @@ type Decoder struct {
 	Int32Count        int
 	Out               []DatasetWithQuality
 	startTimestamp    uint64
-	// qualityHistory    [][]qualityHistory
-	usingSimple8b bool
-	deltaDeltaSum []int64
+	usingSimple8b     bool
+	deltaDeltaSum     []int64
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -107,8 +106,7 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		samplingRate:      samplingRate,
 		samplesPerMessage: samplesPerMessage,
 		Out:               make([]DatasetWithQuality, samplesPerMessage),
-		// qualityHistory:    make([][]qualityHistory, int32Count),
-		deltaDeltaSum: make([]int64, int32Count),
+		deltaDeltaSum:     make([]int64, int32Count),
 	}
 
 	if samplesPerMessage > Simple8bThresholdSamples {
@@ -120,13 +118,6 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		d.Out[i].Int32s = make([]int32, int32Count)
 		d.Out[i].Q = make([]uint32, int32Count)
 	}
-
-	// for i := range d.qualityHistory {
-	// 	// set capacity to avoid some possible allocations during encoding
-	// 	d.qualityHistory[i] = make([]qualityHistory, 1, 16)
-	// 	d.qualityHistory[i][0].value = 0
-	// 	d.qualityHistory[i][0].samples = 0
-	// }
 
 	return d
 }
@@ -228,12 +219,10 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		sampleNumber := 0
 		for sampleNumber < s.samplesPerMessage {
 			valUnsigned, lenB = binary.Uvarint(buf[length:])
-			// s.qualityHistory[i][sampleNumber].value = uint32(valUnsigned)
 			length += lenB
 			s.Out[sampleNumber].Q[i] = uint32(valUnsigned)
 
 			valUnsigned, lenB = binary.Uvarint(buf[length:])
-			// s.qualityHistory[i][sampleNumber].samples = uint32(valUnsigned)
 			length += lenB
 
 			if valUnsigned == 0 {
@@ -250,64 +239,10 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				sampleNumber += int(valUnsigned)
 			}
 		}
-
-		// k := 0
-		// for s.qualityHistory[i][k].samples != 0 {
-		// 	// decode each quality change and store in structure
-		// 	totalSamples := int(s.qualityHistory[i][0].samples)
-		// 	for j := 1; ; /*j < len(s.qualityHistory[i])*/ j++ {
-		// 		// create and populate new array item
-		// 		s.qualityHistory[i] = append(s.qualityHistory[i], qualityHistory{value: 0, samples: 0})
-
-		// 		valUnsigned, lenB = binary.Uvarint(buf[length:])
-		// 		s.qualityHistory[i][j].value = uint32(valUnsigned)
-		// 		length += lenB
-		// 		valUnsigned, lenB = binary.Uvarint(buf[length:])
-		// 		s.qualityHistory[i][j].samples = uint32(valUnsigned)
-		// 		length += lenB
-
-		// 		totalSamples += int(s.qualityHistory[i][j].samples)
-		// 		if totalSamples >= s.samplesPerMessage || j+1 >= len(s.qualityHistory[i]) {
-		// 			break
-		// 		}
-		// 	}
-		// 	k++
-		// }
 	}
-
-	// TODO write directly to output values, don't bother with qualityHistory; should avoid allocs
-	// extract all quality values
-	// for sample := 0; sample < totalSamples; sample++ {
-	// 	for i := 0; i < s.Int32Count; i++ {
-	// 		s.Out[sample].Q[i], _ = getQualityFromHistory(&s.qualityHistory[i], sample)
-	// 	}
-	// }
 
 	return nil
 }
-
-// func getQualityFromHistory(q *[]qualityHistory, sample int) (uint32, error) {
-// 	// simple case where quality does not change, so return the first value
-// 	if len(*q) == 1 {
-// 		return (*q)[0].value, nil
-// 	}
-
-// 	var startRange int = 0
-// 	var endRange int = 0
-// 	for i := range *q {
-// 		if (*q)[i].samples == 0 {
-// 			return (*q)[i].value, nil
-// 		}
-// 		startRange = endRange
-// 		endRange += int((*q)[i].samples)
-// 		if sample >= startRange && sample < endRange {
-// 			return (*q)[i].value, nil
-// 		}
-// 	}
-
-// 	// default quality value
-// 	return (*q)[len(*q)-1].value, errors.New("Could not decode quality value")
-// }
 
 // Encode encodes the next set of samples. It is called iteratively until the pre-defined number of samples are provided.
 func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
@@ -399,13 +334,6 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 			// override final number of samples to zero
 			s.qualityHistory[i][len(s.qualityHistory[i])-1].samples = 0
 
-			// if len(s.qualityHistory[i]) == 1 {
-			// 	// special case, no change in quality value (encode samples as 0)
-			// 	lenB := binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][0].value))
-			// 	s.len += lenB
-			// 	lenB = binary.PutUvarint(s.buf[s.len:], 0)
-			// 	s.len += lenB
-			// } else {
 			// otherwise, encode each value
 			for j := range s.qualityHistory[i] {
 				lenB := binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].value))
@@ -417,7 +345,6 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				// fmt.Println("   ", s.qualityHistory[i][j].value, s.qualityHistory[i][j].samples)
 				// }
 			}
-			// }
 		}
 
 		// reset quality history
