@@ -184,8 +184,6 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 		data[i].Q = make([]uint32, countOfVariables)
 	}
 
-	// soc := uint32(time.Now().Unix())
-
 	// generate data using IED emulator
 	// the timestamp is a simple integer counter, starting from 0
 	for i := range data {
@@ -193,12 +191,6 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 		ied.Step()
 
 		// calculate timestamp
-		// bs := make([]byte, 8)
-		// // TODO big endian?
-		// binary.LittleEndian.PutUint32(bs, soc)
-		// binary.LittleEndian.PutUint32(bs[4:8], uint32(i))
-		// ts := binary.LittleEndian.Uint64(bs)
-		// data[i].T = ts
 		data[i].T = uint64(i)
 
 		// set waveform data
@@ -281,10 +273,9 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	}
 
 	if t != nil {
-		// TODO enc.SamplingRate is correct?
 		meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations)
 		meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
-		theoryBytes := /*enc.SamplingRate * */ enc.SamplesPerMessage * enc.Int32Count * 16
+		theoryBytes := enc.SamplesPerMessage * enc.Int32Count * 16
 
 		t.Logf("%d messages", encodeStats.iterations)
 		t.Logf("average bytes per message: %.1f (theoretical: %d)", meanBytesWithoutHeader, theoryBytes)
@@ -298,11 +289,6 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 }
 
 func TestEncodeDecode(t *testing.T) {
-	// settings for stream protocol
-	// countOfVariables := 3
-	// samples := 10
-	// samplesPerMessage := 2
-
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			// t.Parallel()
@@ -347,7 +333,5 @@ func TestWrongID(t *testing.T) {
 			t.Log("Test data missing")
 			t.Fail()
 		}
-
-		// TODO add error handling
 	})
 }
