@@ -1,6 +1,7 @@
 package streamprotocol_test
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"testing"
@@ -23,18 +24,20 @@ var tests = map[string]struct {
 }{
 	"10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
 	"10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
+	"10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true},
 	"10-10":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
 	"4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
 	"4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
-	"4800-6":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
+	"4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
 	"4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
-	"4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 67},
+	"4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
 	"4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
 	"14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
 	"14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
 	"40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
 	"150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 	"4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
+	"8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true},
 	"4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 	"14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
 }
@@ -226,7 +229,7 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 				data[i].Q[0] = 0x41
 			}
 		}
-		// fmt.Println("encoded:", data[i].Q[0])
+		// fmt.Println("encoded:", i, data[i].Q[0])
 	}
 	return data
 }
@@ -265,16 +268,16 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 						if !assert.Equal(t, (*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j]) {
 							t.FailNow()
 						}
-						// TODO re-enable
-						// if !assert.Equal(t, (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j]) {
-						// 	t.FailNow()
-						// }
+						if !assert.Equal(t, (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j]) {
+							fmt.Println("Q fail:", (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j], i, j)
+							t.FailNow()
+						}
 
 					}
 				}
 			}
 
-			totalSamplesRead += len(dec.Out)
+			totalSamplesRead += enc.SamplesPerMessage
 		}
 	}
 
@@ -294,32 +297,6 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 
 	return nil
 }
-
-// func listenAndCheckDecoder(t *testing.T, ch chan streamprotocol.DatasetWithQuality, data *[]streamprotocol.DatasetWithQuality, wg *sync.WaitGroup) {
-// 	// defer close(streamDecoder.Ch)
-// 	for {
-// 		select {
-// 		case <-time.After(1 * time.Microsecond):
-// 			wg.Done()
-// 			return
-// 		case d := <-ch:
-// 			i := d.T
-
-// 			// compare decoded output
-// 			for j := 0; j < 1; j++ {
-// 				if t != nil {
-// 					assert.Equal(t, (*data)[i].Int32s[j], d.Int32s[j])
-// 					assert.Equal(t, (*data)[i].Q[j], d.Q[j])
-// 				}
-// 				// if data[i].Int32s[j] != d.Int32s[j] {
-// 				// 	t.Errorf("T = %d: data[i].Int32s[j] (%d) != d.Int32s[j] (%d)", i, data[i].Int32s[j], d.Int32s[j])
-// 				// } else {
-// 				// 	t.Logf("T = %d: data[i].Int32s[j] (%d) == d.Int32s[j] (%d) (ok)", i, data[i].Int32s[j], d.Int32s[j])
-// 				// }
-// 			}
-// 		}
-// 	}
-// }
 
 func TestEncodeDecode(t *testing.T) {
 	// settings for stream protocol
@@ -342,18 +319,9 @@ func TestEncodeDecode(t *testing.T) {
 			// streamDecoder := streamprotocol.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
 			streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
-			// var done sync.WaitGroup
-
-			// create thread to decode
-			// done.Add(1)
-			// go listenAndCheckDecoder(t, streamDecoder.Ch, &data, &done)
-
 			// encode the data
 			// when each message is complete, decode
 			encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage)
-
-			// wait for decoder thread to complete
-			// done.Wait()
 		})
 	}
 }
@@ -370,25 +338,15 @@ func TestWrongID(t *testing.T) {
 
 			// create encoder and decoder
 			stream := streamprotocol.NewEncoder(ID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
-			// streamDecoder := streamprotocol.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
 			streamDecoder := streamprotocol.NewDecoder(wrongID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
-
-			// var done sync.WaitGroup
-
-			// create thread to decode
-			// done.Add(1)
-			// go listenAndCheckDecoder(t, streamDecoder.Ch, &data, &done)
 
 			// encode the data
 			// when each message is complete, decode
 			err := encodeAndDecode(t, &data, stream, streamDecoder, tests["10-1"].countOfVariables, tests["10-1"].samplesPerMessage)
 			assert.Equal(t, err.Error(), "IDs did not match")
-
-			// wait for decoder thread to complete
-			// done.Wait()
 		} else {
 			t.Log("Test data missing")
-			t.Fail() // TODO restore
+			t.Fail()
 		}
 
 		// TODO add error handling

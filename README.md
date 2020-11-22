@@ -14,12 +14,8 @@
 # Data types
 
 * 32-bit signed integer for values. This could be extended for floating-point values in the future, using the method in [^2].
-* 32-bit unsigned integer for quality. This is intended to be based on the IEC 61850 quality specification.
-* 64-bit signed integer for timestamp. This is based on the Go language representation, using nanoseconds relative to 1st January 1970 UTC, which is limited to a date between the years 1678 and 2262. Timestamps in STTP are restricted to 100 ns resolution, while suitable for output values such as frequency, it is very inaccurate for CPOW data, which could be sampled at inconvenient rates such as 14.4 kHz (so the 69444 ns sampling period would be truncated to 69400.00 ns, leading to an intrinsic 44.44 ns error). IEC 61850 timestamps...
-
-// TODO IEC timestamps
-// TODO C37.118.2 timestamps
-// TODO IEC time quality
+* 32-bit unsigned integer for quality. This is intended to be based on the IEC 61850 quality specification, for which only 14 bits are used (including the "derived" indicator), and for which only 16 bits should ever be used. It is proposed here that the most significant byte is used for time quality, with the two least significant bytes used for data quality according to the IEC 61850 approach. The exact use is not prescribed at present, but 32 bits per data sample have been provisioned.
+* 64-bit signed integer for timestamp. This is based on the Go language representation, using nanoseconds relative to 1st January 1970 UTC, which is limited to a date between the years 1678 and 2262. Timestamps in STTP are restricted to 100 ns resolution, while suitable for output values such as frequency, it is very inaccurate for CPOW data, which could be sampled at inconvenient rates such as 14.4 kHz (so the 69444 ns sampling period would be truncated to 69400.00 ns, leading to an intrinsic 44.44 ns error). If the start of the data capture was always aligned to second roll over point then the fraction of second value would always be zero, but the protocol should not be restricted in this way. Similarly IEC 61850 and IEEE C37.118.2 timestamps only dedicate 24 bits to the fraction of second and have a poor maximum resolution of 59.6 ns.
 
 # Protocol details
 
@@ -29,7 +25,7 @@ It is assumed that every sample is included for the duration of the message. If 
 
 Wherever possible, variable length encoding is used (with zig-zag encoding for signed values, the same as Google Protocol Buffers).
 
-The first sample must be encoded in full. The second sample is encoded as the difference from the first sample (delta encoding). All remaining samples are encoded using delta-delta encoding. If a relatively large number of values is included per message (such as for an event record), simple-8b encoding can be used to improve the packing of the variable-length integer values.
+The first sample must be encoded in full. The second sample is encoded as the difference from the first sample (delta encoding). All remaining samples are encoded using delta-delta encoding. If a relatively large number of values is included per message (such as for an event record), simple-8b encoding can be used to improve the packing of the variable-length integer values. It is slightly better to use simple-8b for all values, even the first and second values.
 
 The quality is assumed to not change very often. Therefore, it is encoded using run-length encoding (RLE). A special run-length of `0` is used to represent that all future values within the same message are the same. So, for the common case where the quality value is `0` for all samples, that can be encoded in one byte for the value and one byte for the number of samples.
 
