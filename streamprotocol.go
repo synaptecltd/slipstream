@@ -414,7 +414,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				s.len += lenB
 
 				// if len(s.qualityHistory[i]) > 1 {
-				// 	fmt.Println("   ", s.qualityHistory[i][j].value, s.qualityHistory[i][j].samples)
+				// fmt.Println("   ", s.qualityHistory[i][j].value, s.qualityHistory[i][j].samples)
 				// }
 			}
 			// }
@@ -422,6 +422,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 		// reset quality history
 		for i := range s.qualityHistory {
+			s.qualityHistory[i] = s.qualityHistory[i][:1]
 			s.qualityHistory[i][0].value = 0
 			s.qualityHistory[i][0].samples = 0
 		}

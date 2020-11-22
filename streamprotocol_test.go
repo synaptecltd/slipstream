@@ -1,7 +1,6 @@
 package streamprotocol_test
 
 import (
-	"fmt"
 	"math"
 	"sort"
 	"testing"
@@ -269,7 +268,7 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 							t.FailNow()
 						}
 						if !assert.Equal(t, (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j]) {
-							fmt.Println("Q fail:", (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j], i, j)
+							// fmt.Println("Q fail:", (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j], i, j)
 							t.FailNow()
 						}
 
