@@ -55,8 +55,8 @@ func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 			PosSeqMag:       500.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
-			HarmonicAngs:    []float64{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, //{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-			// NoiseMax:        0.0001,
+			HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
+			// NoiseMax:        0.00001,
 		},
 	}
 }

@@ -56,8 +56,8 @@ type Decoder struct {
 	Int32Count        int
 	Out               []DatasetWithQuality
 	startTimestamp    uint64
-	usingSimple8b     bool
 	deltaDeltaSum     []int64
+	usingSimple8b     bool
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -340,10 +340,6 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				s.len += lenB
 				lenB = binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].samples))
 				s.len += lenB
-
-				// if len(s.qualityHistory[i]) > 1 {
-				// fmt.Println("   ", s.qualityHistory[i][j].value, s.qualityHistory[i][j].samples)
-				// }
 			}
 		}
 
