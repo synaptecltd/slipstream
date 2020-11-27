@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/stevenblair/encoding/bitops"
@@ -31,6 +32,10 @@ type qualityHistory struct {
 	samples uint32
 }
 
+// TODO add mutex to encoder (and decoder?) function so can run as goroutine - done for encoder
+// TODO explore option of gzip (or other) for large files
+// TODO needs early end function for use as logger
+
 // Encoder defines a stream protocol instance
 type Encoder struct {
 	ID                uuid.UUID
@@ -46,6 +51,7 @@ type Encoder struct {
 	usingSimple8b     bool
 	diffs             [][]uint64
 	simple8bValues    []uint64
+	mutex             sync.Mutex
 }
 
 // Decoder defines a stream protocol instance for decoding
@@ -246,6 +252,9 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 // Encode encodes the next set of samples. It is called iteratively until the pre-defined number of samples are provided.
 func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	if s.encodedSamples == 0 {
 		s.len = 0
 		s.len += copy(s.buf[s.len:], s.ID[:])
