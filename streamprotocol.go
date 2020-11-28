@@ -35,6 +35,7 @@ type qualityHistory struct {
 // TODO add mutex to encoder (and decoder?) function so can run as goroutine - done for encoder
 // TODO explore option of gzip (or other) for large files
 // TODO needs early end function for use as logger
+// TODO use 32-bit varint functions
 
 // Encoder defines a stream protocol instance
 type Encoder struct {
@@ -50,6 +51,7 @@ type Encoder struct {
 	qualityHistory    [][]qualityHistory
 	usingSimple8b     bool
 	diffs             [][]uint64
+	values            []DatasetWithQuality
 	simple8bValues    []uint64
 	mutex             sync.Mutex
 }
@@ -86,6 +88,12 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		s.diffs = make([][]uint64, int32Count)
 		for i := range s.diffs {
 			s.diffs[i] = make([]uint64, samplesPerMessage)
+		}
+	} else {
+		s.values = make([]DatasetWithQuality, samplesPerMessage)
+		for i := range s.values {
+			s.values[i].Int32s = make([]int32, int32Count)
+			s.values[i].Q = make([]uint32, int32Count)
 		}
 	}
 
@@ -250,6 +258,32 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	return nil
 }
 
+// copied from encoding/binary/varint.go to provide 32-bit version which avoid casting
+func uvarint32(buf []byte) (uint32, int) {
+	var x uint32
+	var s uint
+	for i, b := range buf {
+		if b < 0x80 {
+			if i > 9 || i == 9 && b > 1 {
+				return 0, -(i + 1) // overflow
+			}
+			return x | uint32(b)<<s, i + 1
+		}
+		x |= uint32(b&0x7f) << s
+		s += 7
+	}
+	return 0, 0
+}
+
+func varint32(buf []byte) (int32, int) {
+	ux, n := uvarint32(buf) // ok to continue in presence of error
+	x := int32(ux >> 1)
+	if ux&1 != 0 {
+		x = ^x
+	}
+	return x, n
+}
+
 // Encode encodes the next set of samples. It is called iteratively until the pre-defined number of samples are provided.
 func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	s.mutex.Lock()
@@ -290,8 +324,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				if s.usingSimple8b {
 					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(diff))
 				} else {
-					lenB := binary.PutVarint(s.buf[s.len:], int64(diff))
-					s.len += lenB
+					s.len += binary.PutVarint(s.buf[s.len:], int64(diff))
 				}
 
 				// save previous value
@@ -305,8 +338,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				if s.usingSimple8b {
 					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(diff2))
 				} else {
-					lenB := binary.PutVarint(s.buf[s.len:], int64(diff2))
-					s.len += lenB
+					s.len += binary.PutVarint(s.buf[s.len:], int64(diff2))
 				}
 
 				// save previous value
@@ -345,10 +377,8 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 			// otherwise, encode each value
 			for j := range s.qualityHistory[i] {
-				lenB := binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].value))
-				s.len += lenB
-				lenB = binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].samples))
-				s.len += lenB
+				s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].value))
+				s.len += binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].samples))
 			}
 		}
 
@@ -369,4 +399,60 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	}
 
 	return nil, 0, nil
+}
+
+// StopEncode ends the encoding early, and completes the buffer so far
+func (s *Encoder) StopEncode() ([]byte, int, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// TODO need to encode number of samples, because it will be less than configured size
+	// TODO need to adapt to only encode data up to s.encodedSamples, not full range of s.diffs
+	//      or, we allow simple8b encoding to efficiently encode zeros, but may need to set quality to invalid
+	//      no, still potentially wasteful
+	//      instead, encode the difference from expected (the missing samples) as varint
+	//      no, requires knowledge of expected size, which is unreasonable for log files
+	//      for small packets will only add 1 byte. the propotional increase for other sizes will be small
+	// TODO should zero out diffs values
+	// TODO need to modify decoder to allow dynamic sizes
+
+	if s.usingSimple8b {
+		for i := range s.diffs {
+			numberOfSimple8b, _ := simple8b.EncodeAllRef(&s.simple8bValues, s.diffs[i])
+
+			for j := 0; j < numberOfSimple8b; j++ {
+				binary.BigEndian.PutUint64(s.buf[s.len:], s.simple8bValues[j])
+				s.len += 8
+			}
+		}
+	}
+
+	// encode final quality values using RLE
+	for i := range s.qualityHistory {
+		// override final number of samples to zero
+		s.qualityHistory[i][len(s.qualityHistory[i])-1].samples = 0
+
+		// otherwise, encode each value
+		for j := range s.qualityHistory[i] {
+			lenB := binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].value))
+			s.len += lenB
+			lenB = binary.PutUvarint(s.buf[s.len:], uint64(s.qualityHistory[i][j].samples))
+			s.len += lenB
+		}
+	}
+
+	// reset quality history
+	for i := range s.qualityHistory {
+		s.qualityHistory[i] = s.qualityHistory[i][:1]
+		s.qualityHistory[i][0].value = 0
+		s.qualityHistory[i][0].samples = 0
+	}
+
+	// reset previous values
+	finalLen := s.len
+	s.encodedSamples = 0
+	s.len = 0
+
+	// send data
+	return s.buf[0:finalLen], finalLen, nil
 }
