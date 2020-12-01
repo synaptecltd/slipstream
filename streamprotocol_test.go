@@ -348,27 +348,27 @@ func TestEncodeDecode(t *testing.T) {
 	tab.RenderCSV()
 }
 
-func TestWrongID(t *testing.T) {
-	t.Run("wrong ID", func(t *testing.T) {
-		if _, ok := tests["10-1"]; ok {
-			// settings for IED emulator
-			var ied *iedemulator.IEDEmulator = createIEDEmulator(tests["10-1"].samplingRate)
-			var wrongID uuid.UUID = uuid.New()
+// func TestWrongID(t *testing.T) {
+// 	t.Run("wrong ID", func(t *testing.T) {
+// 		if _, ok := tests["a10-1"]; ok {
+// 			// settings for IED emulator
+// 			var ied *iedemulator.IEDEmulator = createIEDEmulator(tests["10-1"].samplingRate)
+// 			var wrongID uuid.UUID = uuid.New()
 
-			// initialise data structure for input data
-			var data []streamprotocol.DatasetWithQuality = createInputData(ied, tests["10-1"].samples, tests["10-1"].countOfVariables, tests["10-1"].qualityChange)
+// 			// initialise data structure for input data
+// 			var data []streamprotocol.DatasetWithQuality = createInputData(ied, tests["10-1"].samples, tests["10-1"].countOfVariables, tests["10-1"].qualityChange)
 
-			// create encoder and decoder
-			stream := streamprotocol.NewEncoder(ID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
-			streamDecoder := streamprotocol.NewDecoder(wrongID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
+// 			// create encoder and decoder
+// 			stream := streamprotocol.NewEncoder(ID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
+// 			streamDecoder := streamprotocol.NewDecoder(wrongID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
 
-			// encode the data
-			// when each message is complete, decode
-			_, err := encodeAndDecode(t, &data, stream, streamDecoder, tests["10-1"].countOfVariables, tests["10-1"].samplesPerMessage)
-			assert.Equal(t, err.Error(), "IDs did not match")
-		} else {
-			t.Log("Test data missing")
-			t.Fail()
-		}
-	})
-}
+// 			// encode the data
+// 			// when each message is complete, decode
+// 			_, err := encodeAndDecode(t, &data, stream, streamDecoder, tests["10-1"].countOfVariables, tests["10-1"].samplesPerMessage)
+// 			assert.Equal(t, err.Error(), "IDs did not match")
+// 		} else {
+// 			t.Log("Test data missing")
+// 			t.Fail()
+// 		}
+// 	})
+// }

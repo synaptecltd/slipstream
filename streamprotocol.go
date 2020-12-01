@@ -377,6 +377,13 @@ func (s *Encoder) encodeSingleSample(index int, value int32) {
 	}
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Encode encodes the next set of samples. It is called iteratively until the pre-defined number of samples are provided.
 func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	s.mutex.Lock()
@@ -393,18 +400,18 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 		// encode first set of values
 		// for simple-8b encoding, values must be saved in a data structure first, then encoded into 64-bit blocks later
 		// for varint encoding, values can be directly written to the output buffer
-		for i := range data.Int32s {
-			if s.usingSimple8b {
-				s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(data.Int32s[i]))
-			} else {
-				// s.len += putVarint32(s.buf[s.len:], int64(data.Int32s[i]))
-				s.values[s.encodedSamples][i] = data.Int32s[i]
-			}
+		// for i := range data.Int32s {
+		// if s.usingSimple8b {
+		// 	s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(data.Int32s[i]))
+		// } else {
+		// 	// s.len += putVarint32(s.buf[s.len:], int64(data.Int32s[i]))
+		// 	s.values[s.encodedSamples][i] = data.Int32s[i]
+		// }
 
-			// save previous value
-			// s.prevSamples.Int32s[i] = data.Int32s[i] // TODO old
-			s.prevData[0].Int32s[i] = data.Int32s[i]
-		}
+		// // save previous value
+		// // s.prevSamples.Int32s[i] = data.Int32s[i] // TODO old
+		// s.prevData[0].Int32s[i] = data.Int32s[i]
+		// }
 
 		// record first set of quality
 		for i := range data.Q {
@@ -412,141 +419,6 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 			s.qualityHistory[i][0].samples = 1
 		}
 	} else {
-		for i := range data.Int32s {
-			if s.encodedSamples < len(s.prevData) {
-				// special cases for delta encoding
-			} else {
-				// remaining samples for delta coding
-			}
-
-			deltaN := make([]int32, DeltaEncodingLayers)
-
-			j := s.encodedSamples
-
-			if j == 0 {
-				s.encodeSingleSample(i, data.Int32s[i])
-
-				// s.prevData[j].Int32s[i] = data.Int32s[i]
-			} else if j == 1 {
-				deltaN[j-1] = data.Int32s[i] - s.prevData[j-1].Int32s[i]
-
-				s.encodeSingleSample(i, deltaN[j-1])
-
-				// s.prevData[j-1].Int32s[i] = data.Int32s[i]
-				// s.prevData[j].Int32s[i] = deltaN[j-1]
-			} else if j == 2 {
-				deltaN[j-2] = data.Int32s[i] - s.prevData[j-2].Int32s[i]
-				deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
-
-				s.encodeSingleSample(i, deltaN[j-1])
-
-				// s.prevData[j-2].Int32s[i] = data.Int32s[i]
-				// s.prevData[j-1].Int32s[i] = deltaN[j-1]
-				// s.prevData[j].Int32s[i] = deltaN[j]
-			} else if j == 3 {
-				deltaN[j-3] = data.Int32s[i] - s.prevData[j-4].Int32s[i]
-				deltaN[j-2] = deltaN[j-3] - s.prevData[j-2].Int32s[i]
-				deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
-
-				s.encodeSingleSample(i, deltaN[j-1])
-
-				// s.prevData[j-3].Int32s[i] = data.Int32s[i]
-				// s.prevData[j-2].Int32s[i] = deltaN[j-3]
-				// s.prevData[j-1].Int32s[i] = deltaN[j-2]
-				// s.prevData[j].Int32s[i] = deltaN[j-1]
-			} else {
-				deltaN[0] = data.Int32s[i] - s.prevData[0].Int32s[i]
-				deltaN[j-3] = deltaN[j-4] - s.prevData[j-3].Int32s[i]
-				deltaN[j-2] = deltaN[j-3] - s.prevData[j-2].Int32s[i]
-				deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
-
-				s.encodeSingleSample(i, deltaN[j-1])
-			}
-
-			// save samples and deltas for next iteration
-			s.prevData[0].Int32s[i] = data.Int32s[i]
-			for k := 1; k < DeltaEncodingLayers && k <= j; k++ {
-				s.prevData[k].Int32s[i] = deltaN[k-1]
-			}
-
-			if s.encodedSamples == 1 {
-				// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-				var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-
-				if s.usingSimple8b {
-					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta))
-				} else {
-					// s.len += putVarint32(s.buf[s.len:], int64(diff))
-					s.values[s.encodedSamples][i] = delta
-				}
-
-				// save previous value
-				// s.prevSamples.Int32s[i] = data.Int32s[i]
-				s.prevData[0].Int32s[i] = data.Int32s[i]
-				s.prevDelta.Int32s[i] = delta
-				// s.prevDelta2.Int32s[i] = delta
-			} else if s.encodedSamples == 2 {
-				// delta-delta encoding
-				// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-				var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-				var delta2 int32 = delta - s.prevDelta.Int32s[i]
-
-				if s.usingSimple8b {
-					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta2))
-				} else {
-					// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-					s.values[s.encodedSamples][i] = delta2
-				}
-
-				// save previous value
-				// s.prevSamples.Int32s[i] = data.Int32s[i]
-				s.prevData[0].Int32s[i] = data.Int32s[i]
-				s.prevDelta.Int32s[i] = delta
-				s.prevDelta2.Int32s[i] = delta2
-			} else if s.encodedSamples == 3 {
-				// delta-delta encoding
-				// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-				var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-				var delta2 int32 = delta - s.prevDelta.Int32s[i]
-				var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
-
-				if s.usingSimple8b {
-					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta3))
-				} else {
-					// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-					s.values[s.encodedSamples][i] = delta3
-				}
-
-				// save previous value
-				// s.prevSamples.Int32s[i] = data.Int32s[i]
-				s.prevData[0].Int32s[i] = data.Int32s[i]
-				s.prevDelta.Int32s[i] = delta
-				s.prevDelta2.Int32s[i] = delta2
-				s.prevDelta3.Int32s[i] = delta3
-			} else {
-				// delta-delta encoding
-				// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-				var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-				var delta2 int32 = delta - s.prevDelta.Int32s[i]
-				var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
-				var delta4 int32 = delta3 - s.prevDelta3.Int32s[i]
-
-				if s.usingSimple8b {
-					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta4))
-				} else {
-					// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-					s.values[s.encodedSamples][i] = delta4
-				}
-
-				// save previous value
-				s.prevData[0].Int32s[i] = data.Int32s[i]
-				// s.prevSamples.Int32s[i] = data.Int32s[i]
-				s.prevDelta.Int32s[i] = delta
-				s.prevDelta2.Int32s[i] = delta2
-				s.prevDelta3.Int32s[i] = delta3
-			}
-		}
-
 		// write the next quality value
 		for i := range data.Q {
 			if s.qualityHistory[i][len(s.qualityHistory[i])-1].value == data.Q[i] {
@@ -555,6 +427,142 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 				s.qualityHistory[i] = append(s.qualityHistory[i], qualityHistory{value: data.Q[i], samples: 1})
 			}
 		}
+	}
+
+	for i := range data.Int32s {
+		// if s.encodedSamples < len(s.prevData) {
+		// 	// special cases for delta encoding
+		// } else {
+		// 	// remaining samples for delta coding
+		// }
+
+		deltaN := make([]int32, DeltaEncodingLayers)
+
+		j := s.encodedSamples
+
+		// prepare data for delta encoding
+		if j > 0 {
+			deltaN[0] = data.Int32s[i] - s.prevData[0].Int32s[i]
+		}
+		// for k := min(j, DeltaEncodingLayers); k >= 2; k-- {
+		for k := 1; k < min(j, DeltaEncodingLayers); k++ {
+			deltaN[k] = deltaN[k-1] - s.prevData[k].Int32s[i]
+		}
+
+		if j == 0 {
+			s.encodeSingleSample(i, data.Int32s[i])
+		} else {
+			s.encodeSingleSample(i, deltaN[min(j-1, DeltaEncodingLayers-1)])
+		}
+
+		// if j == 2 {
+		// 	fmt.Println(j, i, data.Int32s[i])
+		// 	// fmt.Println(s.prevData)
+		// }
+
+		// if j == 0 {
+		// 	s.encodeSingleSample(i, data.Int32s[i])
+		// } else if j == 1 {
+		// 	s.encodeSingleSample(i, deltaN[j-1])
+		// } else if j == 2 {
+		// 	// deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
+
+		// 	s.encodeSingleSample(i, deltaN[j-1])
+		// } else if j == 3 {
+		// 	// deltaN[j-2] = deltaN[j-3] - s.prevData[j-2].Int32s[i]
+		// 	// deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
+
+		// 	s.encodeSingleSample(i, deltaN[j-1])
+		// } else {
+		// 	// deltaN[j-3] = deltaN[j-4] - s.prevData[j-3].Int32s[i]
+		// 	// deltaN[j-2] = deltaN[j-3] - s.prevData[j-2].Int32s[i]
+		// 	// deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
+
+		// 	s.encodeSingleSample(i, deltaN[j-1])
+		// }
+
+		// save samples and deltas for next iteration
+		s.prevData[0].Int32s[i] = data.Int32s[i]
+		for k := 1; k <= min(j, DeltaEncodingLayers-1); k++ {
+			s.prevData[k].Int32s[i] = deltaN[k-1]
+		}
+
+		// if s.encodedSamples == 1 {
+		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
+
+		// 	if s.usingSimple8b {
+		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta))
+		// 	} else {
+		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff))
+		// 		s.values[s.encodedSamples][i] = delta
+		// 	}
+
+		// 	// save previous value
+		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
+		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
+		// 	s.prevDelta.Int32s[i] = delta
+		// 	// s.prevDelta2.Int32s[i] = delta
+		// } else if s.encodedSamples == 2 {
+		// 	// delta-delta encoding
+		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
+		// 	var delta2 int32 = delta - s.prevDelta.Int32s[i]
+
+		// 	if s.usingSimple8b {
+		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta2))
+		// 	} else {
+		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff2))
+		// 		s.values[s.encodedSamples][i] = delta2
+		// 	}
+
+		// 	// save previous value
+		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
+		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
+		// 	s.prevDelta.Int32s[i] = delta
+		// 	s.prevDelta2.Int32s[i] = delta2
+		// } else if s.encodedSamples == 3 {
+		// 	// delta-delta encoding
+		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
+		// 	var delta2 int32 = delta - s.prevDelta.Int32s[i]
+		// 	var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
+
+		// 	if s.usingSimple8b {
+		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta3))
+		// 	} else {
+		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff2))
+		// 		s.values[s.encodedSamples][i] = delta3
+		// 	}
+
+		// 	// save previous value
+		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
+		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
+		// 	s.prevDelta.Int32s[i] = delta
+		// 	s.prevDelta2.Int32s[i] = delta2
+		// 	s.prevDelta3.Int32s[i] = delta3
+		// } else {
+		// 	// delta-delta encoding
+		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
+		// 	var delta2 int32 = delta - s.prevDelta.Int32s[i]
+		// 	var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
+		// 	var delta4 int32 = delta3 - s.prevDelta3.Int32s[i]
+
+		// 	if s.usingSimple8b {
+		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta4))
+		// 	} else {
+		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff2))
+		// 		s.values[s.encodedSamples][i] = delta4
+		// 	}
+
+		// 	// save previous value
+		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
+		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
+		// 	s.prevDelta.Int32s[i] = delta
+		// 	s.prevDelta2.Int32s[i] = delta2
+		// 	s.prevDelta3.Int32s[i] = delta3
+		// }
 	}
 
 	s.encodedSamples++
