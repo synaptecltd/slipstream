@@ -51,7 +51,8 @@ type Encoder struct {
 	len               int
 	encodedSamples    int
 	prevSamples       Dataset
-	prevDiff          Dataset
+	prevDelta         Dataset
+	prevDelta2        Dataset
 	qualityHistory    [][]qualityHistory
 	usingSimple8b     bool
 	diffs             [][]uint64
@@ -69,7 +70,8 @@ type Decoder struct {
 	Int32Count        int
 	Out               []DatasetWithQuality
 	startTimestamp    uint64
-	deltaDeltaSum     []int32
+	delta2Sum         []int32
+	delta3Sum         []int32
 	usingSimple8b     bool
 }
 
@@ -108,7 +110,8 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 
 	// storage for delta-delta encoding
 	s.prevSamples.Int32s = make([]int32, int32Count)
-	s.prevDiff.Int32s = make([]int32, int32Count)
+	s.prevDelta.Int32s = make([]int32, int32Count)
+	s.prevDelta2.Int32s = make([]int32, int32Count)
 
 	s.qualityHistory = make([][]qualityHistory, int32Count)
 	for i := range s.qualityHistory {
@@ -129,7 +132,8 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		samplingRate:      samplingRate,
 		samplesPerMessage: samplesPerMessage,
 		Out:               make([]DatasetWithQuality, samplesPerMessage),
-		deltaDeltaSum:     make([]int32, int32Count),
+		delta2Sum:         make([]int32, int32Count),
+		delta3Sum:         make([]int32, int32Count),
 	}
 
 	if samplesPerMessage > Simple8bThresholdSamples {
@@ -235,14 +239,21 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			// get signed value back with zig-zag decoding
 			decodedValue := int32(bitops.ZigZagDecode64(v))
 
+			if indexTs > 0 {
+				s.Out[indexTs].T = uint64(indexTs)
+			}
+
 			// delta-delta decoding
 			if indexTs == 0 {
 				s.Out[indexTs].Int32s[indexVariable] = int32(decodedValue)
-				s.deltaDeltaSum[indexVariable] = 0
+				s.delta2Sum[indexVariable] = 0
+			} else if indexTs == 1 {
+				s.delta2Sum[indexVariable] += decodedValue
+				s.Out[indexTs].Int32s[indexVariable] = s.Out[indexTs-1].Int32s[indexVariable] + s.delta2Sum[indexVariable]
 			} else {
-				s.Out[indexTs].T = uint64(indexTs)
-				s.deltaDeltaSum[indexVariable] += decodedValue
-				s.Out[indexTs].Int32s[indexVariable] = s.Out[indexTs-1].Int32s[indexVariable] + int32(s.deltaDeltaSum[indexVariable])
+				s.delta3Sum[indexVariable] += decodedValue
+				s.delta2Sum[indexVariable] += s.delta3Sum[indexVariable]
+				s.Out[indexTs].Int32s[indexVariable] = s.Out[indexTs-1].Int32s[indexVariable] + s.delta2Sum[indexVariable] // + s.delta3Sum[indexVariable]
 			}
 
 			decodeCounter++
@@ -264,29 +275,35 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			valSigned, lenB = varint32(buf[length:])
 			s.Out[0].Int32s[i] = int32(valSigned)
 			length += lenB
-			s.deltaDeltaSum[i] = 0
+			s.delta2Sum[i] = 0
 		}
-	}
 
-	// decode remaining delta-delta encoded values
-	var totalSamples int = 1
-	if s.samplesPerMessage > 1 {
-		for {
-			// encode the sample number relative to the starting timestamp
-			s.Out[totalSamples].T = uint64(totalSamples)
+		// decode remaining delta-delta encoded values
+		if s.samplesPerMessage > 1 {
+			var totalSamples int = 1
+			for {
+				// encode the sample number relative to the starting timestamp
+				s.Out[totalSamples].T = uint64(totalSamples)
 
-			if !s.usingSimple8b {
 				for i := 0; i < s.Int32Count; i++ {
-					diff, lenB := varint32(buf[length:])
-					s.deltaDeltaSum[i] = s.deltaDeltaSum[i] + diff
-					length += lenB
-					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + int32(s.deltaDeltaSum[i])
+					if totalSamples == 1 {
+						decodedValue, lenB := varint32(buf[length:])
+						length += lenB
+						s.delta2Sum[i] += decodedValue
+						s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.delta2Sum[i]
+					} else {
+						decodedValue, lenB := varint32(buf[length:])
+						length += lenB
+						s.delta3Sum[i] += decodedValue
+						s.delta2Sum[i] += s.delta3Sum[i]
+						s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.delta2Sum[i]
+					}
 				}
-			}
-			totalSamples++
+				totalSamples++
 
-			if totalSamples >= s.samplesPerMessage {
-				break
+				if totalSamples >= s.samplesPerMessage {
+					break
+				}
 			}
 		}
 	}
@@ -316,6 +333,11 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				sampleNumber += int(valUnsigned)
 			}
 		}
+	}
+
+	for i := 0; i < s.Int32Count; i++ {
+		s.delta2Sum[i] = 0
+		s.delta3Sum[i] = 0
 	}
 
 	return nil
@@ -357,33 +379,52 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	} else {
 		for i := range data.Int32s {
 			if s.encodedSamples == 1 {
-				var diff int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+				var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
 
 				if s.usingSimple8b {
-					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(diff))
+					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta))
 				} else {
 					// s.len += putVarint32(s.buf[s.len:], int64(diff))
-					s.values[s.encodedSamples][i] = diff
+					s.values[s.encodedSamples][i] = delta
 				}
 
 				// save previous value
 				s.prevSamples.Int32s[i] = data.Int32s[i]
-				s.prevDiff.Int32s[i] = diff
-			} else {
+				s.prevDelta.Int32s[i] = delta
+				// s.prevDelta2.Int32s[i] = delta
+			} else if s.encodedSamples == 2 {
 				// delta-delta encoding
-				var diff int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-				var diff2 int32 = diff - s.prevDiff.Int32s[i]
+				var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+				var delta2 int32 = delta - s.prevDelta.Int32s[i]
 
 				if s.usingSimple8b {
-					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(diff2))
+					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta2))
 				} else {
 					// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-					s.values[s.encodedSamples][i] = diff2
+					s.values[s.encodedSamples][i] = delta2
 				}
 
 				// save previous value
 				s.prevSamples.Int32s[i] = data.Int32s[i]
-				s.prevDiff.Int32s[i] = diff
+				s.prevDelta.Int32s[i] = delta
+				s.prevDelta2.Int32s[i] = delta2
+			} else {
+				// delta-delta encoding
+				var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
+				var delta2 int32 = delta - s.prevDelta.Int32s[i]
+				var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
+
+				if s.usingSimple8b {
+					s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta3))
+				} else {
+					// s.len += putVarint32(s.buf[s.len:], int64(diff2))
+					s.values[s.encodedSamples][i] = delta3
+				}
+
+				// save previous value
+				s.prevSamples.Int32s[i] = data.Int32s[i]
+				s.prevDelta.Int32s[i] = delta
+				s.prevDelta2.Int32s[i] = delta2
 			}
 		}
 
