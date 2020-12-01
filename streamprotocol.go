@@ -54,11 +54,12 @@ type Encoder struct {
 	len               int
 	encodedSamples    int
 
-	prevData    []Dataset
-	prevSamples Dataset
-	prevDelta   Dataset
-	prevDelta2  Dataset
-	prevDelta3  Dataset
+	prevData []Dataset
+	// prevSamples Dataset
+	// prevDelta   Dataset
+	// prevDelta2  Dataset
+	// prevDelta3  Dataset
+	deltaN []int32
 
 	qualityHistory [][]qualityHistory
 	usingSimple8b  bool
@@ -77,13 +78,13 @@ type Decoder struct {
 	Int32Count        int
 	Out               []DatasetWithQuality
 	startTimestamp    uint64
+	usingSimple8b     bool
 
 	deltaSum [][]int32
 
-	delta2Sum     []int32
-	delta3Sum     []int32
-	delta4Sum     []int32
-	usingSimple8b bool
+	delta2Sum []int32
+	delta3Sum []int32
+	delta4Sum []int32
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -100,6 +101,7 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		bufB:              make([]byte, bufSize),
 		Int32Count:        int32Count,
 		simple8bValues:    make([]uint64, samplesPerMessage),
+		deltaN:            make([]int32, DeltaEncodingLayers),
 	}
 
 	// initialise ping-pong buffer
@@ -124,12 +126,6 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	for i := range s.prevData {
 		s.prevData[i].Int32s = make([]int32, int32Count)
 	}
-
-	// TODO old versions to remove
-	s.prevSamples.Int32s = make([]int32, int32Count)
-	s.prevDelta.Int32s = make([]int32, int32Count)
-	s.prevDelta2.Int32s = make([]int32, int32Count)
-	s.prevDelta3.Int32s = make([]int32, int32Count)
 
 	s.qualityHistory = make([][]qualityHistory, int32Count)
 	for i := range s.qualityHistory {
@@ -157,6 +153,12 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 
 	if samplesPerMessage > Simple8bThresholdSamples {
 		d.usingSimple8b = true
+	}
+
+	// storage for delta-delta decoding
+	d.deltaSum = make([][]int32, DeltaEncodingLayers-1)
+	for i := range d.deltaSum {
+		d.deltaSum[i] = make([]int32, int32Count)
 	}
 
 	// initialise each set of outputs in data stucture
@@ -246,13 +248,13 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		// for simple-8b encoding, iterate through every value
 		decodeCounter := 0
 		indexTs := 0
-		indexVariable := 0
+		i := 0
 
 		decodedUnit64s, _ := simple8b.ForEach(buf[length:], func(v uint64) bool {
 			// manage 2D slice indices
 			indexTs = decodeCounter % s.samplesPerMessage
 			if decodeCounter > 0 && indexTs == 0 {
-				indexVariable++
+				i++
 			}
 
 			// get signed value back with zig-zag decoding
@@ -264,20 +266,20 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 			// delta-delta decoding
 			if indexTs == 0 {
-				s.delta2Sum[indexVariable] = 0
-				s.Out[indexTs].Int32s[indexVariable] = decodedValue
+				s.delta2Sum[i] = 0
+				s.Out[indexTs].Int32s[i] = decodedValue
 			} else if indexTs == 1 {
-				s.delta2Sum[indexVariable] += decodedValue
-				s.Out[indexTs].Int32s[indexVariable] = s.Out[indexTs-1].Int32s[indexVariable] + s.delta2Sum[indexVariable]
+				s.delta2Sum[i] += decodedValue
+				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.delta2Sum[i]
 			} else if indexTs == 2 {
-				s.delta3Sum[indexVariable] += decodedValue
-				s.delta2Sum[indexVariable] += s.delta3Sum[indexVariable]
-				s.Out[indexTs].Int32s[indexVariable] = s.Out[indexTs-1].Int32s[indexVariable] + s.delta2Sum[indexVariable]
+				s.delta3Sum[i] += decodedValue
+				s.delta2Sum[i] += s.delta3Sum[i]
+				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.delta2Sum[i]
 			} else {
-				s.delta4Sum[indexVariable] += decodedValue
-				s.delta3Sum[indexVariable] += s.delta4Sum[indexVariable]
-				s.delta2Sum[indexVariable] += s.delta3Sum[indexVariable]
-				s.Out[indexTs].Int32s[indexVariable] = s.Out[indexTs-1].Int32s[indexVariable] + s.delta2Sum[indexVariable]
+				s.delta4Sum[i] += decodedValue
+				s.delta3Sum[i] += s.delta4Sum[i]
+				s.delta2Sum[i] += s.delta3Sum[i]
+				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.delta2Sum[i]
 			}
 
 			decodeCounter++
@@ -299,7 +301,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			valSigned, lenB = varint32(buf[length:])
 			s.Out[0].Int32s[i] = int32(valSigned)
 			length += lenB
-			s.delta2Sum[i] = 0 // TODO don't need if zeroing at end
+			// s.delta2Sum[i] = 0 // TODO don't need if zeroing at end
 		}
 
 		// decode remaining delta-delta encoded values
@@ -312,17 +314,38 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				for i := 0; i < s.Int32Count; i++ {
 					decodedValue, lenB := varint32(buf[length:])
 					length += lenB
-					if totalSamples == 1 {
-						s.delta2Sum[i] += decodedValue
-					} else if totalSamples == 2 {
-						s.delta3Sum[i] += decodedValue
-						s.delta2Sum[i] += s.delta3Sum[i]
-					} else {
-						s.delta4Sum[i] += decodedValue
-						s.delta3Sum[i] += s.delta4Sum[i]
-						s.delta2Sum[i] += s.delta3Sum[i]
+
+					// if totalSamples == 1 {
+					// 	// s.delta2Sum[i] += decodedValue
+
+					// 	s.deltaSum[0][i] += decodedValue
+					// } else if totalSamples == 2 {
+					// 	// s.delta3Sum[i] += decodedValue
+					// 	// s.delta2Sum[i] += s.delta3Sum[i]
+
+					// 	s.deltaSum[1][i] += decodedValue
+					// 	s.deltaSum[0][i] += s.deltaSum[1][i]
+					// } else {
+					// 	// s.delta4Sum[i] += decodedValue
+					// 	// s.delta3Sum[i] += s.delta4Sum[i]
+					// 	// s.delta2Sum[i] += s.delta3Sum[i]
+
+					// 	s.deltaSum[2][i] += decodedValue
+					// 	s.deltaSum[1][i] += s.deltaSum[2][i]
+					// 	s.deltaSum[0][i] += s.deltaSum[1][i]
+					// }
+
+					maxIndex := min(totalSamples, DeltaEncodingLayers-1) - 1
+					s.deltaSum[maxIndex][i] += decodedValue
+
+					// fmt.Println(totalSamples, i, maxIndex)
+
+					for k := maxIndex; k >= 1; k-- {
+						s.deltaSum[k-1][i] += s.deltaSum[k][i]
 					}
-					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.delta2Sum[i]
+
+					// s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.delta2Sum[i]
+					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.deltaSum[0][i]
 				}
 				totalSamples++
 
@@ -360,10 +383,15 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		}
 	}
 
-	for i := 0; i < s.Int32Count; i++ {
-		s.delta2Sum[i] = 0
-		s.delta3Sum[i] = 0
-		s.delta4Sum[i] = 0
+	// for i := 0; i < s.Int32Count; i++ {
+	// 	s.delta2Sum[i] = 0
+	// 	s.delta3Sum[i] = 0
+	// 	s.delta4Sum[i] = 0
+	// }
+	for j := range s.deltaSum {
+		for i := 0; i < s.Int32Count; i++ {
+			s.deltaSum[j][i] = 0
+		}
 	}
 
 	return nil
@@ -389,6 +417,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	// encode header and prepare quality values
 	if s.encodedSamples == 0 {
 		s.len = 0
 		s.len += copy(s.buf[s.len:], s.ID[:])
@@ -396,22 +425,6 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 		// encode timestamp
 		binary.BigEndian.PutUint64(s.buf[s.len:], data.T)
 		s.len += 8
-
-		// encode first set of values
-		// for simple-8b encoding, values must be saved in a data structure first, then encoded into 64-bit blocks later
-		// for varint encoding, values can be directly written to the output buffer
-		// for i := range data.Int32s {
-		// if s.usingSimple8b {
-		// 	s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(data.Int32s[i]))
-		// } else {
-		// 	// s.len += putVarint32(s.buf[s.len:], int64(data.Int32s[i]))
-		// 	s.values[s.encodedSamples][i] = data.Int32s[i]
-		// }
-
-		// // save previous value
-		// // s.prevSamples.Int32s[i] = data.Int32s[i] // TODO old
-		// s.prevData[0].Int32s[i] = data.Int32s[i]
-		// }
 
 		// record first set of quality
 		for i := range data.Q {
@@ -430,144 +443,32 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	}
 
 	for i := range data.Int32s {
-		// if s.encodedSamples < len(s.prevData) {
-		// 	// special cases for delta encoding
-		// } else {
-		// 	// remaining samples for delta coding
-		// }
-
-		deltaN := make([]int32, DeltaEncodingLayers)
-
-		j := s.encodedSamples
+		j := s.encodedSamples // copy for conciseness
 
 		// prepare data for delta encoding
 		if j > 0 {
-			deltaN[0] = data.Int32s[i] - s.prevData[0].Int32s[i]
+			s.deltaN[0] = data.Int32s[i] - s.prevData[0].Int32s[i]
 		}
-		// for k := min(j, DeltaEncodingLayers); k >= 2; k-- {
 		for k := 1; k < min(j, DeltaEncodingLayers); k++ {
-			deltaN[k] = deltaN[k-1] - s.prevData[k].Int32s[i]
+			s.deltaN[k] = s.deltaN[k-1] - s.prevData[k].Int32s[i]
 		}
 
+		// encode the value
 		if j == 0 {
 			s.encodeSingleSample(i, data.Int32s[i])
 		} else {
-			s.encodeSingleSample(i, deltaN[min(j-1, DeltaEncodingLayers-1)])
+			s.encodeSingleSample(i, s.deltaN[min(j-1, DeltaEncodingLayers-1)])
 		}
-
-		// if j == 2 {
-		// 	fmt.Println(j, i, data.Int32s[i])
-		// 	// fmt.Println(s.prevData)
-		// }
-
-		// if j == 0 {
-		// 	s.encodeSingleSample(i, data.Int32s[i])
-		// } else if j == 1 {
-		// 	s.encodeSingleSample(i, deltaN[j-1])
-		// } else if j == 2 {
-		// 	// deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
-
-		// 	s.encodeSingleSample(i, deltaN[j-1])
-		// } else if j == 3 {
-		// 	// deltaN[j-2] = deltaN[j-3] - s.prevData[j-2].Int32s[i]
-		// 	// deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
-
-		// 	s.encodeSingleSample(i, deltaN[j-1])
-		// } else {
-		// 	// deltaN[j-3] = deltaN[j-4] - s.prevData[j-3].Int32s[i]
-		// 	// deltaN[j-2] = deltaN[j-3] - s.prevData[j-2].Int32s[i]
-		// 	// deltaN[j-1] = deltaN[j-2] - s.prevData[j-1].Int32s[i]
-
-		// 	s.encodeSingleSample(i, deltaN[j-1])
-		// }
 
 		// save samples and deltas for next iteration
 		s.prevData[0].Int32s[i] = data.Int32s[i]
 		for k := 1; k <= min(j, DeltaEncodingLayers-1); k++ {
-			s.prevData[k].Int32s[i] = deltaN[k-1]
+			s.prevData[k].Int32s[i] = s.deltaN[k-1]
 		}
-
-		// if s.encodedSamples == 1 {
-		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-
-		// 	if s.usingSimple8b {
-		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta))
-		// 	} else {
-		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff))
-		// 		s.values[s.encodedSamples][i] = delta
-		// 	}
-
-		// 	// save previous value
-		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
-		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
-		// 	s.prevDelta.Int32s[i] = delta
-		// 	// s.prevDelta2.Int32s[i] = delta
-		// } else if s.encodedSamples == 2 {
-		// 	// delta-delta encoding
-		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-		// 	var delta2 int32 = delta - s.prevDelta.Int32s[i]
-
-		// 	if s.usingSimple8b {
-		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta2))
-		// 	} else {
-		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-		// 		s.values[s.encodedSamples][i] = delta2
-		// 	}
-
-		// 	// save previous value
-		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
-		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
-		// 	s.prevDelta.Int32s[i] = delta
-		// 	s.prevDelta2.Int32s[i] = delta2
-		// } else if s.encodedSamples == 3 {
-		// 	// delta-delta encoding
-		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-		// 	var delta2 int32 = delta - s.prevDelta.Int32s[i]
-		// 	var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
-
-		// 	if s.usingSimple8b {
-		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta3))
-		// 	} else {
-		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-		// 		s.values[s.encodedSamples][i] = delta3
-		// 	}
-
-		// 	// save previous value
-		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
-		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
-		// 	s.prevDelta.Int32s[i] = delta
-		// 	s.prevDelta2.Int32s[i] = delta2
-		// 	s.prevDelta3.Int32s[i] = delta3
-		// } else {
-		// 	// delta-delta encoding
-		// 	// var delta int32 = data.Int32s[i] - s.prevSamples.Int32s[i]
-		// 	var delta int32 = data.Int32s[i] - s.prevData[0].Int32s[i]
-		// 	var delta2 int32 = delta - s.prevDelta.Int32s[i]
-		// 	var delta3 int32 = delta2 - s.prevDelta2.Int32s[i]
-		// 	var delta4 int32 = delta3 - s.prevDelta3.Int32s[i]
-
-		// 	if s.usingSimple8b {
-		// 		s.diffs[i][s.encodedSamples] = bitops.ZigZagEncode64(int64(delta4))
-		// 	} else {
-		// 		// s.len += putVarint32(s.buf[s.len:], int64(diff2))
-		// 		s.values[s.encodedSamples][i] = delta4
-		// 	}
-
-		// 	// save previous value
-		// 	s.prevData[0].Int32s[i] = data.Int32s[i]
-		// 	// s.prevSamples.Int32s[i] = data.Int32s[i]
-		// 	s.prevDelta.Int32s[i] = delta
-		// 	s.prevDelta2.Int32s[i] = delta2
-		// 	s.prevDelta3.Int32s[i] = delta3
-		// }
 	}
 
 	s.encodedSamples++
 	if s.encodedSamples >= s.SamplesPerMessage {
-		// fmt.Println("end encode", s.encodedSamples, s.SamplesPerMessage)
 		return s.endEncode()
 	}
 
