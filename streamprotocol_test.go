@@ -1,11 +1,14 @@
 package streamprotocol_test
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"sort"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/stretchr/testify/assert"
 	"github.com/synaptec/synthesis/iedemulator"
 	"github.com/synaptec/synthesis/streamprotocol"
@@ -21,24 +24,24 @@ var tests = map[string]struct {
 	samplesPerMessage int
 	qualityChange     bool
 }{
-	"10-1": {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
-	// "10-2": {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
-	// "10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true},
-	// "10-10":  {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
-	// "4000-2": {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
-	// "4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
-	"4800-20": {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
-	// "4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
-	// "4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
-	// "4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
-	// "14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
-	// "14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
-	// "40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
-	"150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
-	// "4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
-	// "8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true},
-	// "4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
-	// "14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
+	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
+	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
+	"a10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true},
+	"a10-10":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
+	"a4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
+	"a8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true},
+	"b4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
+	"b4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
+	"b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
+	"b4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
+	"c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
+	"c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
+	"d14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
+	"d4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
+	"e14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
+	"e14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
+	"f40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
+	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 }
 
 func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
@@ -231,14 +234,14 @@ type encodeStats struct {
 	totalHeaderBytes int
 }
 
-func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int) error {
+func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int) (*encodeStats, error) {
 	encodeStats := encodeStats{}
 	totalSamplesRead := 0
 
 	for i := range *data {
 		buf, length, errorEncode := enc.Encode(&((*data)[i]))
 		if errorEncode != nil {
-			return errorEncode
+			return nil, errorEncode
 		}
 
 		if length > 0 {
@@ -249,7 +252,7 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 
 			errDecode := dec.DecodeToBuffer(buf, length)
 			if errDecode != nil {
-				return errDecode
+				return nil, errDecode
 			}
 
 			// compare decoded output
@@ -273,25 +276,38 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	}
 
 	if t != nil {
-		meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations)
-		meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
-		theoryBytes := enc.SamplesPerMessage * enc.Int32Count * 16
+		// meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations)
+		// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
+		// theoryBytes := enc.SamplesPerMessage * enc.Int32Count * 16
 
-		t.Logf("%d messages", encodeStats.iterations)
-		t.Logf("average bytes per message: %.1f (theoretical: %d)", meanBytesWithoutHeader, theoryBytes)
-		t.Logf("average bytes per variable: %.1f (%.1f with header) %.1f%% efficiency",
-			meanBytesWithoutHeader/float64(countOfVariables*samplesPerMessage),
-			meanBytes/float64(countOfVariables*samplesPerMessage),
-			100.0*meanBytesWithoutHeader/float64(theoryBytes))
+		// t.Logf("%d messages", encodeStats.iterations)
+		// t.Logf("average bytes per message: %.1f (theoretical: %d)", meanBytesWithoutHeader, theoryBytes)
+		// t.Logf("average bytes per variable: %.1f (%.1f with header) %.1f%% efficiency",
+		// 	meanBytesWithoutHeader/float64(countOfVariables*samplesPerMessage),
+		// 	meanBytes/float64(countOfVariables*samplesPerMessage),
+		// 	100.0*meanBytesWithoutHeader/float64(theoryBytes))
 	}
 
-	return nil
+	return &encodeStats, nil
 }
 
 func TestEncodeDecode(t *testing.T) {
-	for name, test := range tests {
+	// prepare table for presenting results
+	tab := table.NewWriter()
+	tab.SetOutputMirror(os.Stdout)
+	tab.SetStyle(table.StyleLight)
+	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "size (bytes)", "size (%)"})
+
+	keys := make([]string, 0, len(tests))
+	for k := range tests {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, name := range keys {
 		t.Run(name, func(t *testing.T) {
 			// t.Parallel()
+			test := tests[name]
 
 			// settings for IED emulator
 			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
@@ -306,9 +322,30 @@ func TestEncodeDecode(t *testing.T) {
 
 			// encode the data
 			// when each message is complete, decode
-			encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage)
+			encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage)
+
+			theoryBytes := tests[name].countOfVariables * tests[name].samplesPerMessage * 16
+			meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations) // includes header overhead
+			percent := 100 * float64(meanBytes) / float64(theoryBytes)
+
+			// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
+
+			tab.AppendRow([]interface{}{
+				tests[name].samples,
+				tests[name].samplingRate,
+				tests[name].samplesPerMessage,
+				encodeStats.iterations,
+				tests[name].qualityChange,
+				fmt.Sprintf("%.1f", meanBytes),
+				fmt.Sprintf("%.1f", percent),
+			})
+			// tab.AppendSeparator()
 		})
 	}
+
+	// show table of results
+	tab.Render()
+	tab.RenderCSV()
 }
 
 func TestWrongID(t *testing.T) {
@@ -327,7 +364,7 @@ func TestWrongID(t *testing.T) {
 
 			// encode the data
 			// when each message is complete, decode
-			err := encodeAndDecode(t, &data, stream, streamDecoder, tests["10-1"].countOfVariables, tests["10-1"].samplesPerMessage)
+			_, err := encodeAndDecode(t, &data, stream, streamDecoder, tests["10-1"].countOfVariables, tests["10-1"].samplesPerMessage)
 			assert.Equal(t, err.Error(), "IDs did not match")
 		} else {
 			t.Log("Test data missing")
