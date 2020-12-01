@@ -15,7 +15,7 @@ import (
 const Simple8bThresholdSamples = 16
 
 // DeltaEncodingLayers defines the number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
-const DeltaEncodingLayers = 4
+const DeltaEncodingLayers = 5
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -53,19 +53,14 @@ type Encoder struct {
 	useBufA           bool
 	len               int
 	encodedSamples    int
-
-	prevData []Dataset
-	// prevSamples Dataset
-	// prevDelta   Dataset
-	// prevDelta2  Dataset
-	// prevDelta3  Dataset
-	deltaN []int32
+	usingSimple8b     bool
+	simple8bValues    []uint64
+	prevData          []Dataset
+	deltaN            []int32
 
 	qualityHistory [][]qualityHistory
-	usingSimple8b  bool
 	diffs          [][]uint64
 	values         [][]int32
-	simple8bValues []uint64
 	mutex          sync.Mutex
 }
 
@@ -79,12 +74,7 @@ type Decoder struct {
 	Out               []DatasetWithQuality
 	startTimestamp    uint64
 	usingSimple8b     bool
-
-	deltaSum [][]int32
-
-	delta2Sum []int32
-	delta3Sum []int32
-	delta4Sum []int32
+	deltaSum          [][]int32
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -146,9 +136,6 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		samplingRate:      samplingRate,
 		samplesPerMessage: samplesPerMessage,
 		Out:               make([]DatasetWithQuality, samplesPerMessage),
-		delta2Sum:         make([]int32, int32Count),
-		delta3Sum:         make([]int32, int32Count),
-		delta4Sum:         make([]int32, int32Count),
 	}
 
 	if samplesPerMessage > Simple8bThresholdSamples {
@@ -260,26 +247,20 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			// get signed value back with zig-zag decoding
 			decodedValue := int32(bitops.ZigZagDecode64(v))
 
-			if indexTs > 0 {
-				s.Out[indexTs].T = uint64(indexTs)
-			}
-
-			// delta-delta decoding
 			if indexTs == 0 {
-				s.delta2Sum[i] = 0
 				s.Out[indexTs].Int32s[i] = decodedValue
-			} else if indexTs == 1 {
-				s.delta2Sum[i] += decodedValue
-				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.delta2Sum[i]
-			} else if indexTs == 2 {
-				s.delta3Sum[i] += decodedValue
-				s.delta2Sum[i] += s.delta3Sum[i]
-				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.delta2Sum[i]
 			} else {
-				s.delta4Sum[i] += decodedValue
-				s.delta3Sum[i] += s.delta4Sum[i]
-				s.delta2Sum[i] += s.delta3Sum[i]
-				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.delta2Sum[i]
+				s.Out[indexTs].T = uint64(indexTs)
+
+				// delta decoding
+				maxIndex := min(indexTs, DeltaEncodingLayers-1) - 1
+				s.deltaSum[maxIndex][i] += decodedValue
+
+				for k := maxIndex; k >= 1; k-- {
+					s.deltaSum[k-1][i] += s.deltaSum[k][i]
+				}
+
+				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.deltaSum[0][i]
 			}
 
 			decodeCounter++
@@ -301,7 +282,6 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			valSigned, lenB = varint32(buf[length:])
 			s.Out[0].Int32s[i] = int32(valSigned)
 			length += lenB
-			// s.delta2Sum[i] = 0 // TODO don't need if zeroing at end
 		}
 
 		// decode remaining delta-delta encoded values
@@ -311,40 +291,18 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				// encode the sample number relative to the starting timestamp
 				s.Out[totalSamples].T = uint64(totalSamples)
 
+				// delta decoding
 				for i := 0; i < s.Int32Count; i++ {
 					decodedValue, lenB := varint32(buf[length:])
 					length += lenB
 
-					// if totalSamples == 1 {
-					// 	// s.delta2Sum[i] += decodedValue
-
-					// 	s.deltaSum[0][i] += decodedValue
-					// } else if totalSamples == 2 {
-					// 	// s.delta3Sum[i] += decodedValue
-					// 	// s.delta2Sum[i] += s.delta3Sum[i]
-
-					// 	s.deltaSum[1][i] += decodedValue
-					// 	s.deltaSum[0][i] += s.deltaSum[1][i]
-					// } else {
-					// 	// s.delta4Sum[i] += decodedValue
-					// 	// s.delta3Sum[i] += s.delta4Sum[i]
-					// 	// s.delta2Sum[i] += s.delta3Sum[i]
-
-					// 	s.deltaSum[2][i] += decodedValue
-					// 	s.deltaSum[1][i] += s.deltaSum[2][i]
-					// 	s.deltaSum[0][i] += s.deltaSum[1][i]
-					// }
-
 					maxIndex := min(totalSamples, DeltaEncodingLayers-1) - 1
 					s.deltaSum[maxIndex][i] += decodedValue
-
-					// fmt.Println(totalSamples, i, maxIndex)
 
 					for k := maxIndex; k >= 1; k-- {
 						s.deltaSum[k-1][i] += s.deltaSum[k][i]
 					}
 
-					// s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.delta2Sum[i]
 					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.deltaSum[0][i]
 				}
 				totalSamples++
@@ -383,11 +341,6 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		}
 	}
 
-	// for i := 0; i < s.Int32Count; i++ {
-	// 	s.delta2Sum[i] = 0
-	// 	s.delta3Sum[i] = 0
-	// 	s.delta4Sum[i] = 0
-	// }
 	for j := range s.deltaSum {
 		for i := 0; i < s.Int32Count; i++ {
 			s.deltaSum[j][i] = 0
