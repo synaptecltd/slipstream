@@ -32,6 +32,7 @@ type qualityHistory struct {
 	samples uint32
 }
 
+// TODO try at least one more layer of delta encoding
 // TODO need to modify decoder to allow dynamic sizes
 // TODO need to adapt to only encode data up to s.encodedSamples, not full range of s.diffs
 // TODO should zero out diffs values
@@ -398,6 +399,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 	s.encodedSamples++
 	if s.encodedSamples >= s.SamplesPerMessage {
+		// fmt.Println("end encode", s.encodedSamples, s.SamplesPerMessage)
 		return s.endEncode()
 	}
 
@@ -414,6 +416,10 @@ func (s *Encoder) EndEncode() ([]byte, int, error) {
 
 // internal version does not need the mutex
 func (s *Encoder) endEncode() ([]byte, int, error) {
+	// check encoder is in the correct state for writing
+	if s.encodedSamples < s.SamplesPerMessage {
+		return nil, 0, nil
+	}
 
 	// write encoded samples
 	s.len += putVarint32(s.buf[s.len:], int32(s.encodedSamples))
