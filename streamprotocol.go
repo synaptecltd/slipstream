@@ -14,8 +14,8 @@ import (
 // Simple8bThresholdSamples defines the number of samples per message required before using simple-8b encoding
 const Simple8bThresholdSamples = 16
 
-// DeltaEncodingLayers defines the number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
-const DeltaEncodingLayers = 5
+// DefaultDeltaEncodingLayers defines the default number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
+const DefaultDeltaEncodingLayers = 5
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -35,28 +35,28 @@ type qualityHistory struct {
 	samples uint32
 }
 
-// TODO can make generic n-delta encoding?
 // TODO need to modify decoder to allow dynamic sizes
 // TODO need to adapt to only encode data up to s.encodedSamples, not full range of s.diffs
-// TODO should zero out diffs values
+// TODO should zero out diffs values. or not needed if fixing range?
 // TODO add mutex to encoder (and decoder?) function so can run as goroutine - done for encoder
 
 // Encoder defines a stream protocol instance
 type Encoder struct {
-	ID                uuid.UUID
-	SamplingRate      int
-	SamplesPerMessage int
-	Int32Count        int
-	buf               []byte
-	bufA              []byte
-	bufB              []byte
-	useBufA           bool
-	len               int
-	encodedSamples    int
-	usingSimple8b     bool
-	simple8bValues    []uint64
-	prevData          []Dataset
-	deltaN            []int32
+	ID                  uuid.UUID
+	SamplingRate        int
+	SamplesPerMessage   int
+	Int32Count          int
+	buf                 []byte
+	bufA                []byte
+	bufB                []byte
+	useBufA             bool
+	len                 int
+	encodedSamples      int
+	usingSimple8b       bool
+	deltaEncodingLayers int
+	simple8bValues      []uint64
+	prevData            []Dataset
+	deltaN              []int32
 
 	qualityHistory [][]qualityHistory
 	diffs          [][]uint64
@@ -66,15 +66,16 @@ type Encoder struct {
 
 // Decoder defines a stream protocol instance for decoding
 type Decoder struct {
-	ID                uuid.UUID
-	samplingRate      int
-	samplesPerMessage int
-	encodedSamples    int
-	Int32Count        int
-	Out               []DatasetWithQuality
-	startTimestamp    uint64
-	usingSimple8b     bool
-	deltaSum          [][]int32
+	ID                  uuid.UUID
+	samplingRate        int
+	samplesPerMessage   int
+	encodedSamples      int
+	Int32Count          int
+	Out                 []DatasetWithQuality
+	startTimestamp      uint64
+	usingSimple8b       bool
+	deltaEncodingLayers int
+	deltaSum            [][]int32
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -91,12 +92,13 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		bufB:              make([]byte, bufSize),
 		Int32Count:        int32Count,
 		simple8bValues:    make([]uint64, samplesPerMessage),
-		deltaN:            make([]int32, DeltaEncodingLayers),
 	}
 
 	// initialise ping-pong buffer
 	s.useBufA = true
 	s.buf = s.bufA
+
+	s.deltaEncodingLayers = getDeltaEncoding(samplingRate)
 
 	if samplesPerMessage > Simple8bThresholdSamples {
 		s.usingSimple8b = true
@@ -112,10 +114,11 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	}
 
 	// storage for delta-delta encoding
-	s.prevData = make([]Dataset, DeltaEncodingLayers)
+	s.prevData = make([]Dataset, s.deltaEncodingLayers)
 	for i := range s.prevData {
 		s.prevData[i].Int32s = make([]int32, int32Count)
 	}
+	s.deltaN = make([]int32, s.deltaEncodingLayers)
 
 	s.qualityHistory = make([][]qualityHistory, int32Count)
 	for i := range s.qualityHistory {
@@ -142,8 +145,10 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		d.usingSimple8b = true
 	}
 
+	d.deltaEncodingLayers = getDeltaEncoding(samplingRate)
+
 	// storage for delta-delta decoding
-	d.deltaSum = make([][]int32, DeltaEncodingLayers-1)
+	d.deltaSum = make([][]int32, d.deltaEncodingLayers-1)
 	for i := range d.deltaSum {
 		d.deltaSum[i] = make([]int32, int32Count)
 	}
@@ -155,6 +160,14 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	}
 
 	return d
+}
+
+func getDeltaEncoding(samplingRate int) int {
+	if samplingRate > 100000 {
+		return 3
+	} else {
+		return DefaultDeltaEncodingLayers
+	}
 }
 
 // copied from encoding/binary/varint.go to provide 32-bit version to avoid casting
@@ -253,7 +266,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				s.Out[indexTs].T = uint64(indexTs)
 
 				// delta decoding
-				maxIndex := min(indexTs, DeltaEncodingLayers-1) - 1
+				maxIndex := min(indexTs, s.deltaEncodingLayers-1) - 1
 				s.deltaSum[maxIndex][i] += decodedValue
 
 				for k := maxIndex; k >= 1; k-- {
@@ -296,7 +309,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 					decodedValue, lenB := varint32(buf[length:])
 					length += lenB
 
-					maxIndex := min(totalSamples, DeltaEncodingLayers-1) - 1
+					maxIndex := min(totalSamples, s.deltaEncodingLayers-1) - 1
 					s.deltaSum[maxIndex][i] += decodedValue
 
 					for k := maxIndex; k >= 1; k-- {
@@ -402,7 +415,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 		if j > 0 {
 			s.deltaN[0] = data.Int32s[i] - s.prevData[0].Int32s[i]
 		}
-		for k := 1; k < min(j, DeltaEncodingLayers); k++ {
+		for k := 1; k < min(j, s.deltaEncodingLayers); k++ {
 			s.deltaN[k] = s.deltaN[k-1] - s.prevData[k].Int32s[i]
 		}
 
@@ -410,12 +423,12 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 		if j == 0 {
 			s.encodeSingleSample(i, data.Int32s[i])
 		} else {
-			s.encodeSingleSample(i, s.deltaN[min(j-1, DeltaEncodingLayers-1)])
+			s.encodeSingleSample(i, s.deltaN[min(j-1, s.deltaEncodingLayers-1)])
 		}
 
 		// save samples and deltas for next iteration
 		s.prevData[0].Int32s[i] = data.Int32s[i]
-		for k := 1; k <= min(j, DeltaEncodingLayers-1); k++ {
+		for k := 1; k <= min(j, s.deltaEncodingLayers-1); k++ {
 			s.prevData[k].Int32s[i] = s.deltaN[k-1]
 		}
 	}
