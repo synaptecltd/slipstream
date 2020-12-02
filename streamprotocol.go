@@ -35,11 +35,6 @@ type qualityHistory struct {
 	samples uint32
 }
 
-// TODO need to modify decoder to allow dynamic sizes
-// TODO need to adapt to only encode data up to s.encodedSamples, not full range of s.diffs
-// TODO should zero out diffs values. or not needed if fixing range?
-// TODO add mutex to encoder (and decoder?) function so can run as goroutine - done for encoder
-
 // Encoder defines a stream protocol instance
 type Encoder struct {
 	ID                  uuid.UUID
@@ -76,6 +71,7 @@ type Decoder struct {
 	usingSimple8b       bool
 	deltaEncodingLayers int
 	deltaSum            [][]int32
+	mutex               sync.Mutex
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -165,9 +161,16 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 func getDeltaEncoding(samplingRate int) int {
 	if samplingRate > 100000 {
 		return 3
-	} else {
-		return DefaultDeltaEncodingLayers
 	}
+
+	return DefaultDeltaEncodingLayers
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // copied from encoding/binary/varint.go to provide 32-bit version to avoid casting
@@ -221,6 +224,9 @@ func putVarint32(buf []byte, x int32) int {
 
 // DecodeToBuffer decodes to a pre-allocated buffer
 func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	var length int = 16
 	var valSigned int32 = 0
 	var valUnsigned uint32 = 0
@@ -244,6 +250,8 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	s.encodedSamples = int(valSigned)
 	length += lenB
 
+	actualSamples := min(s.encodedSamples, s.samplesPerMessage)
+
 	if s.usingSimple8b {
 		// for simple-8b encoding, iterate through every value
 		decodeCounter := 0
@@ -252,7 +260,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 		decodedUnit64s, _ := simple8b.ForEach(buf[length:], func(v uint64) bool {
 			// manage 2D slice indices
-			indexTs = decodeCounter % s.samplesPerMessage
+			indexTs = decodeCounter % actualSamples
 			if decodeCounter > 0 && indexTs == 0 {
 				i++
 			}
@@ -279,7 +287,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			decodeCounter++
 
 			// all variables and timesteps have been decoded
-			if decodeCounter == s.samplesPerMessage*s.Int32Count {
+			if decodeCounter == actualSamples*s.Int32Count {
 				// stop decoding
 				return false
 			}
@@ -298,7 +306,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		}
 
 		// decode remaining delta-delta encoded values
-		if s.samplesPerMessage > 1 {
+		if actualSamples > 1 {
 			var totalSamples int = 1
 			for {
 				// encode the sample number relative to the starting timestamp
@@ -320,7 +328,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				}
 				totalSamples++
 
-				if totalSamples >= s.samplesPerMessage {
+				if totalSamples >= actualSamples {
 					break
 				}
 			}
@@ -330,7 +338,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	// populate quality structure
 	for i := 0; i < s.Int32Count; i++ {
 		sampleNumber := 0
-		for sampleNumber < s.samplesPerMessage {
+		for sampleNumber < actualSamples {
 			valUnsigned, lenB = uvarint32(buf[length:])
 			length += lenB
 			s.Out[sampleNumber].Q[i] = uint32(valUnsigned)
@@ -343,7 +351,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				for j := sampleNumber + 1; j < len(s.Out); j++ {
 					s.Out[j].Q[i] = s.Out[sampleNumber].Q[i]
 				}
-				sampleNumber = s.samplesPerMessage
+				sampleNumber = actualSamples
 			} else {
 				// write up to valUnsigned remaining Q values for this variable
 				for j := sampleNumber + 1; j < int(valUnsigned); j++ {
@@ -369,13 +377,6 @@ func (s *Encoder) encodeSingleSample(index int, value int32) {
 	} else {
 		s.values[s.encodedSamples][index] = value
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // Encode encodes the next set of samples. It is called iteratively until the pre-defined number of samples are provided.
@@ -451,17 +452,15 @@ func (s *Encoder) EndEncode() ([]byte, int, error) {
 
 // internal version does not need the mutex
 func (s *Encoder) endEncode() ([]byte, int, error) {
-	// check encoder is in the correct state for writing
-	if s.encodedSamples < s.SamplesPerMessage {
-		return nil, 0, nil
-	}
-
 	// write encoded samples
 	s.len += putVarint32(s.buf[s.len:], int32(s.encodedSamples))
 
 	if s.usingSimple8b {
 		for i := range s.diffs {
-			numberOfSimple8b, _ := simple8b.EncodeAllRef(&s.simple8bValues, s.diffs[i])
+			// ensure slice only cantains up to s.encodedSamples
+			actualSamples := min(s.encodedSamples, s.SamplesPerMessage)
+
+			numberOfSimple8b, _ := simple8b.EncodeAllRef(&s.simple8bValues, s.diffs[i][:actualSamples])
 
 			for j := 0; j < numberOfSimple8b; j++ {
 				binary.BigEndian.PutUint64(s.buf[s.len:], s.simple8bValues[j])

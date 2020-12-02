@@ -23,6 +23,7 @@ var tests = map[string]struct {
 	samples           int
 	samplesPerMessage int
 	qualityChange     bool
+	earlyEncodingStop bool
 }{
 	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
 	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
@@ -39,6 +40,7 @@ var tests = map[string]struct {
 	"d14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
 	"d4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
 	"e14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
+	"e14400-14400s":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, earlyEncodingStop: true},
 	"e14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
 	"f40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
 	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
@@ -92,7 +94,7 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 
 				// encode the data
 				// when each message is complete, decode
-				encodeAndDecode(nil, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage)
+				encodeAndDecode(nil, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage, test.earlyEncodingStop)
 			}
 		})
 	}
@@ -234,7 +236,9 @@ type encodeStats struct {
 	totalHeaderBytes int
 }
 
-func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int) (*encodeStats, error) {
+const earlyEncodingStopSamples = 100
+
+func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int, earlyEncodingStop bool) (*encodeStats, error) {
 	encodeStats := encodeStats{}
 	totalSamplesRead := 0
 
@@ -244,8 +248,13 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 			return nil, errorEncode
 		}
 
+		// simulate encoding stopping early
+		if earlyEncodingStop && length == 0 && i == (earlyEncodingStopSamples-1) {
+			buf, length, _ = enc.EndEncode()
+		}
+
 		if length > 0 {
-			//  generate average stats
+			// generate average stats
 			encodeStats.iterations++
 			encodeStats.totalBytes += length
 			encodeStats.totalHeaderBytes += 24
@@ -258,15 +267,21 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 			// compare decoded output
 			if t != nil {
 				for i := range dec.Out {
+					// only check up to samples encoded
+					if earlyEncodingStop && i >= earlyEncodingStopSamples {
+						break
+					}
+
 					for j := 0; j < dec.Int32Count; j++ {
 						if !assert.Equal(t, (*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j]) {
+							// fmt.Println("error at", i, j)
 							t.FailNow()
 						}
+						// fmt.Println("fine at", i, j, (*data)[totalSamplesRead+i].Int32s[j], dec.Out[i].Int32s[j])
 						if !assert.Equal(t, (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j]) {
 							// fmt.Println("Q fail:", (*data)[totalSamplesRead+i].Q[j], dec.Out[i].Q[j], i, j)
 							t.FailNow()
 						}
-
 					}
 				}
 			}
@@ -296,7 +311,7 @@ func TestEncodeDecode(t *testing.T) {
 	tab := table.NewWriter()
 	tab.SetOutputMirror(os.Stdout)
 	tab.SetStyle(table.StyleLight)
-	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "size (bytes)", "size (%)"})
+	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "early\nencode stop", "size\n(bytes)", "size\n(%)"})
 
 	keys := make([]string, 0, len(tests))
 	for k := range tests {
@@ -322,12 +337,11 @@ func TestEncodeDecode(t *testing.T) {
 
 			// encode the data
 			// when each message is complete, decode
-			encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage)
+			encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage, test.earlyEncodingStop)
 
 			theoryBytes := tests[name].countOfVariables * tests[name].samplesPerMessage * 16
 			meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations) // includes header overhead
 			percent := 100 * float64(meanBytes) / float64(theoryBytes)
-
 			// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
 
 			tab.AppendRow([]interface{}{
@@ -336,6 +350,7 @@ func TestEncodeDecode(t *testing.T) {
 				tests[name].samplesPerMessage,
 				encodeStats.iterations,
 				tests[name].qualityChange,
+				tests[name].earlyEncodingStop,
 				fmt.Sprintf("%.1f", meanBytes),
 				fmt.Sprintf("%.1f", percent),
 			})
@@ -348,27 +363,29 @@ func TestEncodeDecode(t *testing.T) {
 	// tab.RenderCSV()
 }
 
-// func TestWrongID(t *testing.T) {
-// 	t.Run("wrong ID", func(t *testing.T) {
-// 		if _, ok := tests["a10-1"]; ok {
-// 			// settings for IED emulator
-// 			var ied *iedemulator.IEDEmulator = createIEDEmulator(tests["10-1"].samplingRate)
-// 			var wrongID uuid.UUID = uuid.New()
+func TestWrongID(t *testing.T) {
+	t.Run("wrong ID", func(t *testing.T) {
+		if _, ok := tests["a10-1"]; ok {
+			test := tests["a10-1"]
 
-// 			// initialise data structure for input data
-// 			var data []streamprotocol.DatasetWithQuality = createInputData(ied, tests["10-1"].samples, tests["10-1"].countOfVariables, tests["10-1"].qualityChange)
+			// settings for IED emulator
+			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+			var wrongID uuid.UUID = uuid.New()
 
-// 			// create encoder and decoder
-// 			stream := streamprotocol.NewEncoder(ID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
-// 			streamDecoder := streamprotocol.NewDecoder(wrongID, tests["10-1"].countOfVariables, tests["10-1"].samplingRate, tests["10-1"].samplesPerMessage)
+			// initialise data structure for input data
+			var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
 
-// 			// encode the data
-// 			// when each message is complete, decode
-// 			_, err := encodeAndDecode(t, &data, stream, streamDecoder, tests["10-1"].countOfVariables, tests["10-1"].samplesPerMessage)
-// 			assert.Equal(t, err.Error(), "IDs did not match")
-// 		} else {
-// 			t.Log("Test data missing")
-// 			t.Fail()
-// 		}
-// 	})
-// }
+			// create encoder and decoder
+			stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+			streamDecoder := streamprotocol.NewDecoder(wrongID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+
+			// encode the data
+			// when each message is complete, decode
+			_, err := encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage, test.earlyEncodingStop)
+			assert.Equal(t, err.Error(), "IDs did not match")
+		} else {
+			t.Log("Test data missing")
+			t.Fail()
+		}
+	})
+}
