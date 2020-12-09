@@ -450,6 +450,29 @@ func (s *Encoder) EndEncode() ([]byte, int, error) {
 	return s.endEncode()
 }
 
+// StopEncode ends the encoding early, but does not write to the file
+func (s *Encoder) StopEncode() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// reset quality history
+	for i := range s.qualityHistory {
+		s.qualityHistory[i] = s.qualityHistory[i][:1]
+		s.qualityHistory[i][0].value = 0
+		s.qualityHistory[i][0].samples = 0
+	}
+
+	// reset previous values
+	s.encodedSamples = 0
+	s.len = 0
+
+	// send data and swap ping-pong buffer
+	if s.useBufA {
+		s.useBufA = false
+		s.buf = s.bufB
+	}
+}
+
 // internal version does not need the mutex
 func (s *Encoder) endEncode() ([]byte, int, error) {
 	// write encoded samples
