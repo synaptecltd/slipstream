@@ -25,24 +25,24 @@ var tests = map[string]struct {
 	qualityChange     bool
 	earlyEncodingStop bool
 }{
-	// "a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
-	// "a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
-	// "a10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true},
-	"a10-10": {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
-	// "a4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
-	// "a8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true},
-	// "b4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
-	// "b4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
-	// "b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
-	"b4000-4000": {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
-	// "c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
-	// "c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
-	"d14400-6": {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
-	// "d4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
-	"e14400-14400": {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
-	// "e14400-14400s":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, earlyEncodingStop: true},
-	// "e14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
-	// "f40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
+	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
+	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
+	"a10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true},
+	"a10-10":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
+	"a4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
+	"a8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true},
+	"b4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
+	"b4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
+	"b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
+	"b4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
+	"c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
+	"c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
+	"d14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
+	"d4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
+	"e14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
+	"e14400-14400s":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, earlyEncodingStop: true},
+	"e14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
+	"f40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
 	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 }
 
@@ -54,14 +54,14 @@ func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 		Ts:           1 / float64(samplingRate),
 		V: iedemulator.ThreePhaseEmulation{
 			PosSeqMag: 275000.0 / math.Sqrt(3) * math.Sqrt(2),
-			// NoiseMax:  0.00001,
+			NoiseMax:  0.00001,
 		},
 		I: iedemulator.ThreePhaseEmulation{
 			PosSeqMag:       500.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 			HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-			// NoiseMax:        0.00001,
+			NoiseMax:        0.00001,
 		},
 	}
 }
@@ -130,10 +130,6 @@ func BenchmarkEncode(b1 *testing.B) {
 					buf, len, _ := enc.Encode(&data[d])
 
 					if len > 0 {
-						//  generate average stats
-						// encodeStats.iterations++
-						// encodeStats.totalBytes += len
-
 						b.StopTimer()
 						dec.DecodeToBuffer(buf, len)
 						b.StartTimer()
@@ -225,13 +221,13 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 				data[i].Q[0] = 0x41
 			}
 		}
-		// fmt.Println("encoded:", i, data[i].Q[0])
 	}
 	return data
 }
 
 type encodeStats struct {
-	iterations       int
+	samples          int
+	messages         int
 	totalBytes       int
 	totalHeaderBytes int
 }
@@ -243,6 +239,7 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 	totalSamplesRead := 0
 
 	for i := range *data {
+		encodeStats.samples++
 		buf, length, errorEncode := enc.Encode(&((*data)[i]))
 		if errorEncode != nil {
 			return nil, errorEncode
@@ -255,7 +252,7 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 
 		if length > 0 {
 			// generate average stats
-			encodeStats.iterations++
+			encodeStats.messages++
 			encodeStats.totalBytes += length
 			encodeStats.totalHeaderBytes += 24
 
@@ -287,20 +284,11 @@ func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, en
 			}
 
 			totalSamplesRead += enc.SamplesPerMessage
+
+			if earlyEncodingStop {
+				return &encodeStats, nil
+			}
 		}
-	}
-
-	if t != nil {
-		// meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations)
-		// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
-		// theoryBytes := enc.SamplesPerMessage * enc.Int32Count * 16
-
-		// t.Logf("%d messages", encodeStats.iterations)
-		// t.Logf("average bytes per message: %.1f (theoretical: %d)", meanBytesWithoutHeader, theoryBytes)
-		// t.Logf("average bytes per variable: %.1f (%.1f with header) %.1f%% efficiency",
-		// 	meanBytesWithoutHeader/float64(countOfVariables*samplesPerMessage),
-		// 	meanBytes/float64(countOfVariables*samplesPerMessage),
-		// 	100.0*meanBytesWithoutHeader/float64(theoryBytes))
 	}
 
 	return &encodeStats, nil
@@ -339,19 +327,23 @@ func TestEncodeDecode(t *testing.T) {
 			// when each message is complete, decode
 			encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, test.countOfVariables, test.samplesPerMessage, test.earlyEncodingStop)
 
-			theoryBytes := tests[name].countOfVariables * tests[name].samplesPerMessage * 16
-			meanBytes := float64(encodeStats.totalBytes) / float64(encodeStats.iterations) // includes header overhead
-			percent := 100 * float64(meanBytes) / float64(theoryBytes)
+			theoryBytesPerMessage := test.countOfVariables * test.samplesPerMessage * 16
+
+			if test.earlyEncodingStop {
+				theoryBytesPerMessage = test.countOfVariables * encodeStats.samples * 16
+			}
+			meanBytesPerMessage := float64(encodeStats.totalBytes) / float64(encodeStats.messages) // includes header overhead
+			percent := 100 * float64(meanBytesPerMessage) / float64(theoryBytesPerMessage)
 			// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
 
 			tab.AppendRow([]interface{}{
-				tests[name].samples,
+				encodeStats.samples,
 				tests[name].samplingRate,
 				tests[name].samplesPerMessage,
-				encodeStats.iterations,
+				encodeStats.messages,
 				tests[name].qualityChange,
 				tests[name].earlyEncodingStop,
-				fmt.Sprintf("%.1f", meanBytes),
+				fmt.Sprintf("%.1f", meanBytesPerMessage),
 				fmt.Sprintf("%.1f", percent),
 			})
 			// tab.AppendSeparator()
@@ -360,7 +352,7 @@ func TestEncodeDecode(t *testing.T) {
 
 	// show table of results
 	tab.Render()
-	tab.RenderCSV()
+	// tab.RenderCSV()
 }
 
 func TestWrongID(t *testing.T) {
