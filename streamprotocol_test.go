@@ -34,6 +34,7 @@ var tests = map[string]struct {
 	"b4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
 	"b4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
 	"b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
+	"b4000-800":      {samplingRate: 4000, countOfVariables: 8, samples: 800, samplesPerMessage: 800},
 	"b4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
 	"c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
 	"c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
@@ -54,14 +55,14 @@ func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 		Ts:           1 / float64(samplingRate),
 		V: iedemulator.ThreePhaseEmulation{
 			PosSeqMag: 275000.0 / math.Sqrt(3) * math.Sqrt(2),
-			NoiseMax:  0.00001,
+			// NoiseMax:  0.00001,
 		},
 		I: iedemulator.ThreePhaseEmulation{
 			PosSeqMag:       500.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 			HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-			NoiseMax:        0.00001,
+			// NoiseMax:        0.00001,
 		},
 	}
 }
