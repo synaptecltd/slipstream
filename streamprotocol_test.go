@@ -24,6 +24,8 @@ var tests = map[string]struct {
 	samplesPerMessage int
 	qualityChange     bool
 	earlyEncodingStop bool
+	useSpatialRefs    bool
+	includeNeutral    bool
 }{
 	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
 	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
@@ -36,6 +38,8 @@ var tests = map[string]struct {
 	"b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
 	"b4000-800":      {samplingRate: 4000, countOfVariables: 8, samples: 800, samplesPerMessage: 800},
 	"b4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
+	"b4000-4000s1":   {samplingRate: 4000, countOfVariables: 16, samples: 4000, samplesPerMessage: 4000, useSpatialRefs: false},
+	"b4000-4000s2":   {samplingRate: 4000, countOfVariables: 16, samples: 4000, samplesPerMessage: 4000, useSpatialRefs: true},
 	"c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
 	"c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
 	"d14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
@@ -226,6 +230,71 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 	return data
 }
 
+func createInputDataDualIED(ied1 *iedemulator.IEDEmulator, ied2 *iedemulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []streamprotocol.DatasetWithQuality {
+	var data []streamprotocol.DatasetWithQuality = make([]streamprotocol.DatasetWithQuality, samples)
+	for i := range data {
+		data[i].Int32s = make([]int32, countOfVariables)
+		data[i].Q = make([]uint32, countOfVariables)
+	}
+
+	// generate data using IED emulator
+	// the timestamp is a simple integer counter, starting from 0
+	for i := range data {
+		// compute emulated waveform data
+		ied1.Step()
+		ied2.Step()
+
+		// calculate timestamp
+		data[i].T = uint64(i)
+
+		// set waveform data
+		data[i].Int32s[0] = int32(ied1.V.A * 100.0)
+		data[i].Int32s[1] = int32(ied1.V.B * 100.0)
+		data[i].Int32s[2] = int32(ied1.V.C * 100.0)
+		data[i].Int32s[3] = int32((ied1.V.A + ied1.V.B + ied1.V.C) * 100.0)
+		data[i].Int32s[4] = int32(ied2.V.A * 100.0)
+		data[i].Int32s[5] = int32(ied2.V.B * 100.0)
+		data[i].Int32s[6] = int32(ied2.V.C * 100.0)
+		data[i].Int32s[7] = int32((ied2.V.A + ied2.V.B + ied2.V.C) * 100.0)
+
+		data[i].Int32s[8] = int32(ied1.I.A * 1000.0)
+		data[i].Int32s[9] = int32(ied1.I.B * 1000.0)
+		data[i].Int32s[10] = int32(ied1.I.C * 1000.0)
+		data[i].Int32s[11] = int32((ied1.I.A + ied1.I.B + ied1.I.C) * 1000.0)
+		data[i].Int32s[12] = int32(ied2.I.A * 1000.0)
+		data[i].Int32s[13] = int32(ied2.I.B * 1000.0)
+		data[i].Int32s[14] = int32(ied2.I.C * 1000.0)
+		data[i].Int32s[15] = int32((ied2.I.A + ied2.I.B + ied2.I.C) * 1000.0)
+
+		// set quality data
+		data[i].Q[0] = 0
+		data[i].Q[1] = 0
+		data[i].Q[2] = 0
+		data[i].Q[3] = 0
+		data[i].Q[4] = 0
+		data[i].Q[5] = 0
+		data[i].Q[6] = 0
+		data[i].Q[7] = 0
+		data[i].Q[8] = 0
+		data[i].Q[9] = 0
+		data[i].Q[10] = 0
+		data[i].Q[11] = 0
+		data[i].Q[12] = 0
+		data[i].Q[13] = 0
+		data[i].Q[14] = 0
+		data[i].Q[15] = 0
+
+		if qualityChange {
+			if i == 2 {
+				data[i].Q[0] = 1
+			} else if i == 3 {
+				data[i].Q[0] = 0x41
+			}
+		}
+	}
+	return data
+}
+
 type encodeStats struct {
 	samples          int
 	messages         int
@@ -300,7 +369,7 @@ func TestEncodeDecode(t *testing.T) {
 	tab := table.NewWriter()
 	tab.SetOutputMirror(os.Stdout)
 	tab.SetStyle(table.StyleLight)
-	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "early\nencode stop", "size\n(bytes)", "size\n(%)"})
+	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "early\nencode stop", "spatial\nrefs", "size\n(bytes)", "size\n(%)"})
 
 	keys := make([]string, 0, len(tests))
 	for k := range tests {
@@ -317,12 +386,23 @@ func TestEncodeDecode(t *testing.T) {
 			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
 
 			// initialise data structure for input data
-			var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+			var data []streamprotocol.DatasetWithQuality
+			if test.countOfVariables == 16 {
+				var ied2 *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+				data = createInputDataDualIED(ied, ied2, test.samples, test.countOfVariables, test.qualityChange)
+			} else {
+				data = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+			}
 
 			// create encoder and decoder
 			stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 			// streamDecoder := streamprotocol.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
 			streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+
+			if test.useSpatialRefs {
+				stream.SetSpatialRefs(test.countOfVariables, test.countOfVariables/8, test.countOfVariables/8, true)        // TODO test includeNeutral
+				streamDecoder.SetSpatialRefs(test.countOfVariables, test.countOfVariables/8, test.countOfVariables/8, true) // TODO test includeNeutral
+			}
 
 			// encode the data
 			// when each message is complete, decode
@@ -344,6 +424,7 @@ func TestEncodeDecode(t *testing.T) {
 				encodeStats.messages,
 				tests[name].qualityChange,
 				tests[name].earlyEncodingStop,
+				tests[name].useSpatialRefs,
 				fmt.Sprintf("%.1f", meanBytesPerMessage),
 				fmt.Sprintf("%.1f", percent),
 			})

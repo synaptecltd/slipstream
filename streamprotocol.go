@@ -15,7 +15,7 @@ import (
 const Simple8bThresholdSamples = 16
 
 // DefaultDeltaEncodingLayers defines the default number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
-const DefaultDeltaEncodingLayers = 5
+const DefaultDeltaEncodingLayers = 2
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -57,6 +57,8 @@ type Encoder struct {
 	diffs          [][]uint64
 	values         [][]int32
 	mutex          sync.Mutex
+
+	spatialRef []int
 }
 
 // Decoder defines a stream protocol instance for decoding
@@ -72,6 +74,8 @@ type Decoder struct {
 	deltaEncodingLayers int
 	deltaSum            [][]int32
 	mutex               sync.Mutex
+
+	spatialRef []int
 }
 
 // NewEncoder creates a stream protocol encoder instance
@@ -124,6 +128,11 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		s.qualityHistory[i][0].samples = 0
 	}
 
+	s.spatialRef = make([]int, int32Count)
+	for i := range s.spatialRef {
+		s.spatialRef[i] = -1
+	}
+
 	return s
 }
 
@@ -155,7 +164,57 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		d.Out[i].Q = make([]uint32, int32Count)
 	}
 
+	d.spatialRef = make([]int, int32Count)
+	for i := range d.spatialRef {
+		d.spatialRef[i] = -1
+	}
+
 	return d
+}
+
+func createSpatialRefs(count int, countV int, countI int, includeNeutral bool) []int {
+	refs := make([]int, count)
+	for i := range refs {
+		refs[i] = -1
+	}
+
+	inc := 3
+	if includeNeutral {
+		inc = 4
+	}
+
+	for i := range refs {
+		if i >= inc {
+			if i < countV*inc {
+				refs[i] = i - inc
+			} else if i >= (countV+1)*inc && i < (countV+countI)*inc {
+				refs[i] = i - inc
+			}
+		}
+
+		// if i >= inc {
+		// 	refs[i] = i - inc
+		// }
+		// if includeNeutral {
+		// 	if i >= 4 {
+		// 		refs[i] = i - 4
+		// 	}
+		// } else {
+		// 	if i >= 3 {
+		// 		refs[i] = i - 3
+		// 	}
+		// }
+	}
+	// fmt.Println(refs)
+	return refs
+}
+
+func (s *Encoder) SetSpatialRefs(count int, countV int, countI int, includeNeutral bool) {
+	s.spatialRef = createSpatialRefs(count, countV, countI, includeNeutral)
+}
+
+func (s *Decoder) SetSpatialRefs(count int, countV int, countI int, includeNeutral bool) {
+	s.spatialRef = createSpatialRefs(count, countV, countI, includeNeutral)
 }
 
 func getDeltaEncoding(samplingRate int) int {
@@ -288,6 +347,15 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 			// all variables and timesteps have been decoded
 			if decodeCounter == actualSamples*s.Int32Count {
+				// take care of spatial references (cannot do this piecemeal above because it disrupts the previous value history)
+				for indexTs := range s.Out {
+					for i := range s.Out[indexTs].Int32s {
+						if s.spatialRef[i] >= 0 {
+							s.Out[indexTs].Int32s[i] += s.Out[indexTs].Int32s[s.spatialRef[i]]
+						}
+					}
+				}
+
 				// stop decoding
 				return false
 			}
@@ -303,6 +371,10 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			valSigned, lenB = varint32(buf[length:])
 			s.Out[0].Int32s[i] = int32(valSigned)
 			length += lenB
+
+			if s.spatialRef[i] >= 0 {
+				s.Out[0].Int32s[i] += s.Out[0].Int32s[s.spatialRef[i]]
+			}
 		}
 
 		// decode remaining delta-delta encoded values
@@ -325,10 +397,24 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 					}
 
 					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.deltaSum[0][i]
+					// if s.spatialRef[i] >= 0 {
+					// 	s.Out[totalSamples].Int32s[i] += s.Out[totalSamples].Int32s[s.spatialRef[i]]
+					// }
 				}
 				totalSamples++
 
 				if totalSamples >= actualSamples {
+					// take care of spatial references (cannot do this piecemeal above because it disrupts the previous value history)
+					for indexTs := range s.Out {
+						for i := range s.Out[indexTs].Int32s {
+							// skip the first time index
+							if indexTs > 0 && s.spatialRef[i] >= 0 {
+								s.Out[indexTs].Int32s[i] += s.Out[indexTs].Int32s[s.spatialRef[i]]
+							}
+						}
+					}
+
+					// end decoding
 					break
 				}
 			}
@@ -379,6 +465,13 @@ func (s *Encoder) encodeSingleSample(index int, value int32) {
 	}
 }
 
+// func abs(a int32) int32 {
+// 	if a < 0 {
+// 		return -a
+// 	}
+// 	return a
+// }
+
 // Encode encodes the next set of samples. It is called iteratively until the pre-defined number of samples are provided.
 func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 	s.mutex.Lock()
@@ -411,10 +504,20 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 	for i := range data.Int32s {
 		j := s.encodedSamples // copy for conciseness
+		val := data.Int32s[i]
+
+		// check if another data stream is to be used the spatial reference
+		if s.spatialRef[i] >= 0 {
+			// valOld := val
+			val -= data.Int32s[s.spatialRef[i]]
+			// if abs(val) > abs(valOld) {
+			// 	fmt.Println(j, i, valOld, val, "ref:", data.Int32s[s.spatialRef[i]])
+			// }
+		}
 
 		// prepare data for delta encoding
 		if j > 0 {
-			s.deltaN[0] = data.Int32s[i] - s.prevData[0].Int32s[i]
+			s.deltaN[0] = val - s.prevData[0].Int32s[i]
 		}
 		for k := 1; k < min(j, s.deltaEncodingLayers); k++ {
 			s.deltaN[k] = s.deltaN[k-1] - s.prevData[k].Int32s[i]
@@ -422,13 +525,13 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 		// encode the value
 		if j == 0 {
-			s.encodeSingleSample(i, data.Int32s[i])
+			s.encodeSingleSample(i, val)
 		} else {
 			s.encodeSingleSample(i, s.deltaN[min(j-1, s.deltaEncodingLayers-1)])
 		}
 
 		// save samples and deltas for next iteration
-		s.prevData[0].Int32s[i] = data.Int32s[i]
+		s.prevData[0].Int32s[i] = val
 		for k := 1; k <= min(j, s.deltaEncodingLayers-1); k++ {
 			s.prevData[k].Int32s[i] = s.deltaN[k-1]
 		}
