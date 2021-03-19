@@ -172,6 +172,16 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	return d
 }
 
+// SetSpatialRefs automatically maps adjacent sets of three-phase currents for spatial compression
+func (s *Encoder) SetSpatialRefs(count int, countV int, countI int, includeNeutral bool) {
+	s.spatialRef = createSpatialRefs(count, countV, countI, includeNeutral)
+}
+
+// SetSpatialRefs automatically maps adjacent sets of three-phase currents for spatial compression
+func (s *Decoder) SetSpatialRefs(count int, countV int, countI int, includeNeutral bool) {
+	s.spatialRef = createSpatialRefs(count, countV, countI, includeNeutral)
+}
+
 func createSpatialRefs(count int, countV int, countI int, includeNeutral bool) []int {
 	refs := make([]int, count)
 	for i := range refs {
@@ -191,30 +201,9 @@ func createSpatialRefs(count int, countV int, countI int, includeNeutral bool) [
 				refs[i] = i - inc
 			}
 		}
-
-		// if i >= inc {
-		// 	refs[i] = i - inc
-		// }
-		// if includeNeutral {
-		// 	if i >= 4 {
-		// 		refs[i] = i - 4
-		// 	}
-		// } else {
-		// 	if i >= 3 {
-		// 		refs[i] = i - 3
-		// 	}
-		// }
 	}
 	// fmt.Println(refs)
 	return refs
-}
-
-func (s *Encoder) SetSpatialRefs(count int, countV int, countI int, includeNeutral bool) {
-	s.spatialRef = createSpatialRefs(count, countV, countI, includeNeutral)
-}
-
-func (s *Decoder) SetSpatialRefs(count int, countV int, countI int, includeNeutral bool) {
-	s.spatialRef = createSpatialRefs(count, countV, countI, includeNeutral)
 }
 
 func getDeltaEncoding(samplingRate int) int {
@@ -371,10 +360,6 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 			valSigned, lenB = varint32(buf[length:])
 			s.Out[0].Int32s[i] = int32(valSigned)
 			length += lenB
-
-			if s.spatialRef[i] >= 0 {
-				s.Out[0].Int32s[i] += s.Out[0].Int32s[s.spatialRef[i]]
-			}
 		}
 
 		// decode remaining delta-delta encoded values
@@ -397,9 +382,6 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 					}
 
 					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.deltaSum[0][i]
-					// if s.spatialRef[i] >= 0 {
-					// 	s.Out[totalSamples].Int32s[i] += s.Out[totalSamples].Int32s[s.spatialRef[i]]
-					// }
 				}
 				totalSamples++
 
@@ -408,7 +390,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 					for indexTs := range s.Out {
 						for i := range s.Out[indexTs].Int32s {
 							// skip the first time index
-							if indexTs > 0 && s.spatialRef[i] >= 0 {
+							if s.spatialRef[i] >= 0 {
 								s.Out[indexTs].Int32s[i] += s.Out[indexTs].Int32s[s.spatialRef[i]]
 							}
 						}
@@ -508,11 +490,7 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 		// check if another data stream is to be used the spatial reference
 		if s.spatialRef[i] >= 0 {
-			// valOld := val
 			val -= data.Int32s[s.spatialRef[i]]
-			// if abs(val) > abs(valOld) {
-			// 	fmt.Println(j, i, valOld, val, "ref:", data.Int32s[s.spatialRef[i]])
-			// }
 		}
 
 		// prepare data for delta encoding
