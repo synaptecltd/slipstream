@@ -51,7 +51,7 @@ var tests = map[string]struct {
 	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 }
 
-func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
+func createIEDEmulator(samplingRate int, phaseOffsetDeg float64) *iedemulator.IEDEmulator {
 	return &iedemulator.IEDEmulator{
 		SamplingRate: samplingRate,
 		Fnom:         50.0,
@@ -60,9 +60,11 @@ func createIEDEmulator(samplingRate int) *iedemulator.IEDEmulator {
 		V: iedemulator.ThreePhaseEmulation{
 			PosSeqMag: 275000.0 / math.Sqrt(3) * math.Sqrt(2),
 			// NoiseMax:  0.00001,
+			PhaseOffset: phaseOffsetDeg * math.Pi / 180.0,
 		},
 		I: iedemulator.ThreePhaseEmulation{
 			PosSeqMag:       500.0,
+			PhaseOffset:     phaseOffsetDeg * math.Pi / 180.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 			HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
@@ -86,7 +88,7 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
 				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -120,7 +122,7 @@ func BenchmarkEncode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
 				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -160,7 +162,7 @@ func BenchmarkDecode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
 				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -383,12 +385,12 @@ func TestEncodeDecode(t *testing.T) {
 			test := tests[name]
 
 			// settings for IED emulator
-			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 			// initialise data structure for input data
 			var data []streamprotocol.DatasetWithQuality
 			if test.countOfVariables == 16 {
-				var ied2 *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+				var ied2 *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 				data = createInputDataDualIED(ied, ied2, test.samples, test.countOfVariables, test.qualityChange)
 			} else {
 				data = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -443,7 +445,7 @@ func TestWrongID(t *testing.T) {
 			test := tests["a10-1"]
 
 			// settings for IED emulator
-			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate)
+			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 			var wrongID uuid.UUID = uuid.New()
 
 			// initialise data structure for input data
