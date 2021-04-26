@@ -18,6 +18,7 @@ import (
 // Simple8bThresholdSamples defines the number of samples per message required before using simple-8b encoding
 const Simple8bThresholdSamples = 16
 
+// TODO value of 5 is good in streamprotocol_test.go, but slightly worse for microcontroller data (0.36 Mbps vs 0.3 Mbps)
 // DefaultDeltaEncodingLayers defines the default number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
 const DefaultDeltaEncodingLayers = 5
 
@@ -28,7 +29,7 @@ const HighDeltaEncodingLayers = 3
 const MaxHeaderSize = 36
 
 // UseGzipThresholdSamples is the minimum number of samples per message to use gzip on the payload
-const UseGzipThresholdSamples = 500
+const UseGzipThresholdSamples = 250
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -323,6 +324,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 	actualSamples := min(s.encodedSamples, s.samplesPerMessage)
 
+	// TODO inspect performance here
 	s.gzBuf.Reset()
 	if s.samplesPerMessage > UseGzipThresholdSamples {
 		gr, err := gzip.NewReader(bytes.NewBuffer(buf[length:]))
@@ -656,8 +658,9 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 	if !s.useBufA {
 		activeOutBuf = s.outBufB
 	}
-	activeOutBuf.Reset()
 
+	// TODO inspect performance here
+	activeOutBuf.Reset()
 	if s.SamplesPerMessage > UseGzipThresholdSamples {
 		// do not compress header
 		activeOutBuf.Write(s.buf[0:actualHeaderLen])
