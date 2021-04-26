@@ -2,11 +2,12 @@ package streamprotocol
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/binary"
 	"errors"
 	"io"
 	"sync"
+
+	gzip "github.com/klauspost/compress/gzip"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -322,13 +323,13 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		return err
 	}
 
-	origLen, errRead := io.Copy(s.gzBuf, gr)
+	_, errRead := io.Copy(s.gzBuf, gr)
 	// origLen, errRead := gr.Read((buf[length:]))
 	if errRead != nil {
 		return errRead
 	}
 	gr.Close()
-	log.Debug().Int("gz len", totalLength).Int64("original len", origLen).Msg("decoding")
+	// log.Debug().Int("gz len", totalLength).Int64("original len", origLen).Msg("decoding")
 	outBytes := s.gzBuf.Bytes()
 	length = 0
 
@@ -657,7 +658,7 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 	if err := gz.Close(); err != nil {
 		log.Error().Err(err).Msg("could not close gz")
 	}
-	log.Debug().Int("gz len", activeOutBuf.Len()).Int("original len", s.len).Msg("encoding")
+	// log.Debug().Int("gz len", activeOutBuf.Len()).Int("original len", s.len).Msg("encoding")
 
 	// reset previous values
 	// finalLen := s.len
@@ -668,10 +669,12 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 	if s.useBufA {
 		s.useBufA = false
 		s.buf = s.bufB
-		return /*s.bufA[0:finalLen], finalLen*/ activeOutBuf.Bytes(), activeOutBuf.Len(), nil
+		return activeOutBuf.Bytes(), activeOutBuf.Len(), nil
+		// return s.bufA[0:finalLen], finalLen, nil
 	}
 
 	s.useBufA = true
 	s.buf = s.bufA
-	return /*s.bufB[0:finalLen], finalLen*/ activeOutBuf.Bytes(), activeOutBuf.Len(), nil
+	return activeOutBuf.Bytes(), activeOutBuf.Len(), nil
+	// return s.bufB[0:finalLen], finalLen, nil
 }
