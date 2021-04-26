@@ -28,7 +28,7 @@ const HighDeltaEncodingLayers = 3
 const MaxHeaderSize = 36
 
 // UseGzipThresholdSamples is the minimum number of samples per message to use gzip on the payload
-const UseGzipThresholdSamples = 50000000
+const UseGzipThresholdSamples = 500
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
