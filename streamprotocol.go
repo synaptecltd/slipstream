@@ -2,11 +2,14 @@ package streamprotocol
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"errors"
+	"io"
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"github.com/stevenblair/encoding/bitops"
 	"github.com/stevenblair/encoding/simple8b"
 )
@@ -16,6 +19,9 @@ const Simple8bThresholdSamples = 16
 
 // DefaultDeltaEncodingLayers defines the default number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
 const DefaultDeltaEncodingLayers = 2
+
+// MaxHeaderSize is the size of the message header in bytes
+const MaxHeaderSize = 36
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -44,6 +50,8 @@ type Encoder struct {
 	buf                 []byte
 	bufA                []byte
 	bufB                []byte
+	outBufA             *bytes.Buffer
+	outBufB             *bytes.Buffer
 	useBufA             bool
 	len                 int
 	encodedSamples      int
@@ -68,6 +76,7 @@ type Decoder struct {
 	samplesPerMessage   int
 	encodedSamples      int
 	Int32Count          int
+	gzBuf               *bytes.Buffer
 	Out                 []DatasetWithQuality
 	startTimestamp      uint64
 	usingSimple8b       bool
@@ -81,8 +90,7 @@ type Decoder struct {
 // NewEncoder creates a stream protocol encoder instance
 func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessage int) *Encoder {
 	// estimate maximum buffer space required
-	headerSize := 36
-	bufSize := headerSize + samplesPerMessage*int32Count*8 + int32Count*4
+	bufSize := MaxHeaderSize + samplesPerMessage*int32Count*8 + int32Count*4
 
 	s := &Encoder{
 		ID:                ID,
@@ -97,6 +105,10 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	// initialise ping-pong buffer
 	s.useBufA = true
 	s.buf = s.bufA
+
+	// TODO make this conditional on message size to reduce memory use
+	s.outBufA = bytes.NewBuffer(make([]byte, 0, bufSize))
+	s.outBufB = bytes.NewBuffer(make([]byte, 0, bufSize))
 
 	s.deltaEncodingLayers = getDeltaEncoding(samplingRate)
 
@@ -149,6 +161,10 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	if samplesPerMessage > Simple8bThresholdSamples {
 		d.usingSimple8b = true
 	}
+
+	// TODO make this conditional on message size to reduce memory use
+	bufSize := samplesPerMessage*int32Count*8 + int32Count*4
+	d.gzBuf = bytes.NewBuffer(make([]byte, 0, bufSize))
 
 	d.deltaEncodingLayers = getDeltaEncoding(samplingRate)
 
@@ -300,13 +316,29 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 	actualSamples := min(s.encodedSamples, s.samplesPerMessage)
 
+	s.gzBuf.Reset()
+	gr, err := gzip.NewReader(bytes.NewBuffer(buf[length:]))
+	if err != nil {
+		return err
+	}
+
+	origLen, errRead := io.Copy(s.gzBuf, gr)
+	// origLen, errRead := gr.Read((buf[length:]))
+	if errRead != nil {
+		return errRead
+	}
+	gr.Close()
+	log.Debug().Int("gz len", totalLength).Int64("original len", origLen).Msg("decoding")
+	outBytes := s.gzBuf.Bytes()
+	length = 0
+
 	if s.usingSimple8b {
 		// for simple-8b encoding, iterate through every value
 		decodeCounter := 0
 		indexTs := 0
 		i := 0
 
-		decodedUnit64s, _ := simple8b.ForEach(buf[length:], func(v uint64) bool {
+		decodedUnit64s, _ := simple8b.ForEach( /*buf[length:]*/ outBytes[length:], func(v uint64) bool {
 			// manage 2D slice indices
 			indexTs = decodeCounter % actualSamples
 			if decodeCounter > 0 && indexTs == 0 {
@@ -357,7 +389,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	} else {
 		// get first set of samples using delta-delta encoding
 		for i := 0; i < s.Int32Count; i++ {
-			valSigned, lenB = varint32(buf[length:])
+			valSigned, lenB = varint32( /*buf[length:]*/ outBytes[length:])
 			s.Out[0].Int32s[i] = int32(valSigned)
 			length += lenB
 		}
@@ -371,7 +403,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 				// delta decoding
 				for i := 0; i < s.Int32Count; i++ {
-					decodedValue, lenB := varint32(buf[length:])
+					decodedValue, lenB := varint32( /*buf[length:]*/ outBytes[length:])
 					length += lenB
 
 					maxIndex := min(totalSamples, s.deltaEncodingLayers-1) - 1
@@ -407,11 +439,11 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	for i := 0; i < s.Int32Count; i++ {
 		sampleNumber := 0
 		for sampleNumber < actualSamples {
-			valUnsigned, lenB = uvarint32(buf[length:])
+			valUnsigned, lenB = uvarint32( /*buf[length:]*/ outBytes[length:])
 			length += lenB
 			s.Out[sampleNumber].Q[i] = uint32(valUnsigned)
 
-			valUnsigned, lenB = uvarint32(buf[length:])
+			valUnsigned, lenB = uvarint32( /*buf[length:]*/ outBytes[length:])
 			length += lenB
 
 			if valUnsigned == 0 {
@@ -558,6 +590,7 @@ func (s *Encoder) StopEncode() {
 func (s *Encoder) endEncode() ([]byte, int, error) {
 	// write encoded samples
 	s.len += putVarint32(s.buf[s.len:], int32(s.encodedSamples))
+	actualHeaderLen := s.len
 
 	if s.usingSimple8b {
 		for i := range s.diffs {
@@ -598,8 +631,36 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 		s.qualityHistory[i][0].samples = 0
 	}
 
+	// experiment with Huffman coding
+	// var enc huff0.Scratch
+	// comp, _, err := huff0.Compress4X(s.buf[0:s.len], &enc)
+	// if err == huff0.ErrIncompressible || err == huff0.ErrUseRLE || err == huff0.ErrTooBig {
+	// 	log.Error().Err(err).Msg("huff0 error")
+	// }
+	// log.Debug().Int("huff0 len", len(comp)).Int("original len", s.len).Msg("huff0 output")
+
+	// experiment with gzip
+	// TODO implement fully, test other examples and message lengths
+	activeOutBuf := s.outBufA
+	if !s.useBufA {
+		activeOutBuf = s.outBufB
+	}
+	activeOutBuf.Reset()
+
+	// do not compress header
+	activeOutBuf.Write(s.buf[0:actualHeaderLen])
+
+	gz, _ := gzip.NewWriterLevel(activeOutBuf, gzip.BestCompression) // can test entropy coding by using gzip.HuffmanOnly
+	if _, err := gz.Write(s.buf[actualHeaderLen:s.len]); err != nil {
+		log.Error().Err(err).Msg("could not write gz")
+	}
+	if err := gz.Close(); err != nil {
+		log.Error().Err(err).Msg("could not close gz")
+	}
+	log.Debug().Int("gz len", activeOutBuf.Len()).Int("original len", s.len).Msg("encoding")
+
 	// reset previous values
-	finalLen := s.len
+	// finalLen := s.len
 	s.encodedSamples = 0
 	s.len = 0
 
@@ -607,10 +668,10 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 	if s.useBufA {
 		s.useBufA = false
 		s.buf = s.bufB
-		return s.bufA[0:finalLen], finalLen, nil
+		return /*s.bufA[0:finalLen], finalLen*/ activeOutBuf.Bytes(), activeOutBuf.Len(), nil
 	}
 
 	s.useBufA = true
 	s.buf = s.bufA
-	return s.bufB[0:finalLen], finalLen, nil
+	return /*s.bufB[0:finalLen], finalLen*/ activeOutBuf.Bytes(), activeOutBuf.Len(), nil
 }
