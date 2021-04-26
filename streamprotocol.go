@@ -19,10 +19,16 @@ import (
 const Simple8bThresholdSamples = 16
 
 // DefaultDeltaEncodingLayers defines the default number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
-const DefaultDeltaEncodingLayers = 2
+const DefaultDeltaEncodingLayers = 5
+
+// HighDeltaEncodingLayers defines the number of layers of delta encoding for high sampling rate scenarios.
+const HighDeltaEncodingLayers = 3
 
 // MaxHeaderSize is the size of the message header in bytes
 const MaxHeaderSize = 36
+
+// UseGzipThresholdSamples is the minimum number of samples per message to use gzip on the payload
+const UseGzipThresholdSamples = 50000000
 
 // Dataset defines lists of variables to be encoded
 type Dataset struct {
@@ -225,7 +231,7 @@ func createSpatialRefs(count int, countV int, countI int, includeNeutral bool) [
 
 func getDeltaEncoding(samplingRate int) int {
 	if samplingRate > 100000 {
-		return 3
+		return HighDeltaEncodingLayers
 	}
 
 	return DefaultDeltaEncodingLayers
@@ -318,17 +324,21 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	actualSamples := min(s.encodedSamples, s.samplesPerMessage)
 
 	s.gzBuf.Reset()
-	gr, err := gzip.NewReader(bytes.NewBuffer(buf[length:]))
-	if err != nil {
-		return err
-	}
+	if s.samplesPerMessage > UseGzipThresholdSamples {
+		gr, err := gzip.NewReader(bytes.NewBuffer(buf[length:]))
+		if err != nil {
+			return err
+		}
 
-	_, errRead := io.Copy(s.gzBuf, gr)
-	// origLen, errRead := gr.Read((buf[length:]))
-	if errRead != nil {
-		return errRead
+		_, errRead := io.Copy(s.gzBuf, gr)
+		// origLen, errRead := gr.Read((buf[length:]))
+		if errRead != nil {
+			return errRead
+		}
+		gr.Close()
+	} else {
+		s.gzBuf = bytes.NewBuffer(buf[length:])
 	}
-	gr.Close()
 	// log.Debug().Int("gz len", totalLength).Int64("original len", origLen).Msg("decoding")
 	outBytes := s.gzBuf.Bytes()
 	length = 0
@@ -641,24 +651,32 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 	// log.Debug().Int("huff0 len", len(comp)).Int("original len", s.len).Msg("huff0 output")
 
 	// experiment with gzip
-	// TODO implement fully, test other examples and message lengths
+	// TODO determine if bufA/bufB can be replaced with this internal double buffering
 	activeOutBuf := s.outBufA
 	if !s.useBufA {
 		activeOutBuf = s.outBufB
 	}
 	activeOutBuf.Reset()
 
-	// do not compress header
-	activeOutBuf.Write(s.buf[0:actualHeaderLen])
+	if s.SamplesPerMessage > UseGzipThresholdSamples {
+		// do not compress header
+		activeOutBuf.Write(s.buf[0:actualHeaderLen])
 
-	gz, _ := gzip.NewWriterLevel(activeOutBuf, gzip.BestCompression) // can test entropy coding by using gzip.HuffmanOnly
-	if _, err := gz.Write(s.buf[actualHeaderLen:s.len]); err != nil {
-		log.Error().Err(err).Msg("could not write gz")
+		gz, _ := gzip.NewWriterLevel(activeOutBuf, gzip.BestCompression) // can test entropy coding by using gzip.HuffmanOnly
+		if _, err := gz.Write(s.buf[actualHeaderLen:s.len]); err != nil {
+			log.Error().Err(err).Msg("could not write gz")
+		}
+		if err := gz.Close(); err != nil {
+			log.Error().Err(err).Msg("could not close gz")
+		}
+
+		// ensure that gzip size is never greater that input for all input sizes
+		if activeOutBuf.Len() > s.len && s.encodedSamples == s.SamplesPerMessage {
+			log.Error().Int("gz", activeOutBuf.Len()).Int("original", s.len).Int("SamplesPerMessage", s.SamplesPerMessage).Msg("gzip encoding length greater")
+		}
+	} else {
+		activeOutBuf.Write(s.buf[0:s.len])
 	}
-	if err := gz.Close(); err != nil {
-		log.Error().Err(err).Msg("could not close gz")
-	}
-	// log.Debug().Int("gz len", activeOutBuf.Len()).Int("original len", s.len).Msg("encoding")
 
 	// reset previous values
 	// finalLen := s.len

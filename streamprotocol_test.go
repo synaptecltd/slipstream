@@ -42,7 +42,6 @@ func init() {
 }
 
 var ID = uuid.New()
-var samplingRate = 4000
 
 var tests = map[string]struct {
 	samplingRate      int
