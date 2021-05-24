@@ -74,6 +74,7 @@ type Encoder struct {
 	values         [][]int32
 	mutex          sync.Mutex
 
+	useXOR     bool
 	spatialRef []int
 }
 
@@ -92,6 +93,7 @@ type Decoder struct {
 	deltaSum            [][]int32
 	mutex               sync.Mutex
 
+	useXOR     bool
 	spatialRef []int
 }
 
@@ -194,6 +196,16 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	}
 
 	return d
+}
+
+// SetXOR uses XOR delta instead of arithmetic delta
+func (s *Encoder) SetXOR(xor bool) {
+	s.useXOR = xor
+}
+
+// SetXOR uses XOR delta instead of arithmetic delta
+func (s *Decoder) SetXOR(xor bool) {
+	s.useXOR = xor
 }
 
 // SetSpatialRefs automatically maps adjacent sets of three-phase currents for spatial compression
@@ -368,13 +380,25 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 				// delta decoding
 				maxIndex := min(indexTs, s.deltaEncodingLayers-1) - 1
-				s.deltaSum[maxIndex][i] += decodedValue
-
-				for k := maxIndex; k >= 1; k-- {
-					s.deltaSum[k-1][i] += s.deltaSum[k][i]
+				if s.useXOR {
+					s.deltaSum[maxIndex][i] ^= decodedValue
+				} else {
+					s.deltaSum[maxIndex][i] += decodedValue
 				}
 
-				s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.deltaSum[0][i]
+				for k := maxIndex; k >= 1; k-- {
+					if s.useXOR {
+						s.deltaSum[k-1][i] ^= s.deltaSum[k][i]
+					} else {
+						s.deltaSum[k-1][i] += s.deltaSum[k][i]
+					}
+				}
+
+				if s.useXOR {
+					s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] ^ s.deltaSum[0][i]
+				} else {
+					s.Out[indexTs].Int32s[i] = s.Out[indexTs-1].Int32s[i] + s.deltaSum[0][i]
+				}
 			}
 
 			decodeCounter++
@@ -540,10 +564,18 @@ func (s *Encoder) Encode(data *DatasetWithQuality) ([]byte, int, error) {
 
 		// prepare data for delta encoding
 		if j > 0 {
-			s.deltaN[0] = val - s.prevData[0].Int32s[i]
+			if s.useXOR {
+				s.deltaN[0] = val ^ s.prevData[0].Int32s[i]
+			} else {
+				s.deltaN[0] = val - s.prevData[0].Int32s[i]
+			}
 		}
 		for k := 1; k < min(j, s.deltaEncodingLayers); k++ {
-			s.deltaN[k] = s.deltaN[k-1] - s.prevData[k].Int32s[i]
+			if s.useXOR {
+				s.deltaN[k] = s.deltaN[k-1] ^ s.prevData[k].Int32s[i]
+			} else {
+				s.deltaN[k] = s.deltaN[k-1] - s.prevData[k].Int32s[i]
+			}
 		}
 
 		// encode the value
