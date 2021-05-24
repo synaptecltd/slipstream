@@ -112,6 +112,8 @@ func NewEncoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		simple8bValues:    make([]uint64, samplesPerMessage),
 	}
 
+	// s.useXOR = true
+
 	// initialise ping-pong buffer
 	s.useBufA = true
 	s.buf = s.bufA
@@ -167,6 +169,8 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 		samplesPerMessage: samplesPerMessage,
 		Out:               make([]DatasetWithQuality, samplesPerMessage),
 	}
+
+	// d.useXOR = true
 
 	if samplesPerMessage > Simple8bThresholdSamples {
 		d.usingSimple8b = true
@@ -444,13 +448,25 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 					length += lenB
 
 					maxIndex := min(totalSamples, s.deltaEncodingLayers-1) - 1
-					s.deltaSum[maxIndex][i] += decodedValue
-
-					for k := maxIndex; k >= 1; k-- {
-						s.deltaSum[k-1][i] += s.deltaSum[k][i]
+					if s.useXOR {
+						s.deltaSum[maxIndex][i] ^= decodedValue
+					} else {
+						s.deltaSum[maxIndex][i] += decodedValue
 					}
 
-					s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.deltaSum[0][i]
+					for k := maxIndex; k >= 1; k-- {
+						if s.useXOR {
+							s.deltaSum[k-1][i] ^= s.deltaSum[k][i]
+						} else {
+							s.deltaSum[k-1][i] += s.deltaSum[k][i]
+						}
+					}
+
+					if s.useXOR {
+						s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] ^ s.deltaSum[0][i]
+					} else {
+						s.Out[totalSamples].Int32s[i] = s.Out[totalSamples-1].Int32s[i] + s.deltaSum[0][i]
+					}
 				}
 				totalSamples++
 
