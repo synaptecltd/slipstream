@@ -655,10 +655,15 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 
 	if s.usingSimple8b {
 		for i := range s.diffs {
-			// ensure slice only cantains up to s.encodedSamples
+			// ensure slice only contains up to s.encodedSamples
 			actualSamples := min(s.encodedSamples, s.SamplesPerMessage)
 
 			numberOfSimple8b, _ := simple8b.EncodeAllRef(&s.simple8bValues, s.diffs[i][:actualSamples])
+
+			// calculate efficiency of simple8b
+			// multiply number of simple8b units by 2 because input is 32-bit, output is 64-bit
+			// simple8bRatio := float64(2*numberOfSimple8b) / float64(actualSamples)
+			// fmt.Println("simple8b efficiency:", simple8bRatio)
 
 			for j := 0; j < numberOfSimple8b; j++ {
 				binary.BigEndian.PutUint64(s.buf[s.len:], s.simple8bValues[j])
