@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/synaptecltd/emulator"
+	"github.com/synaptecltd/slipstream"
 )
 
 // DevelopmentBuild enables additional debugging features
@@ -76,8 +77,8 @@ var tests = map[string]struct {
 	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 }
 
-func createIEDEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.IEDEmulator {
-	return &emulator.IEDEmulator{
+func createEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.Emulator {
+	return &emulator.Emulator{
 		SamplingRate: samplingRate,
 		Fnom:         50.0,
 		Fdeviation:   0.0,
@@ -113,7 +114,7 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied *emulator.Emulator = createEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
 				var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -147,7 +148,7 @@ func BenchmarkEncode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied *emulator.Emulator = createEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
 				var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -187,7 +188,7 @@ func BenchmarkDecode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied *emulator.Emulator = createEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
 				var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -210,7 +211,7 @@ func BenchmarkDecode(b1 *testing.B) {
 	}
 }
 
-func createInputData(ied *emulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
+func createInputData(ied *emulator.Emulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
 	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samples)
 	for i := range data {
 		data[i].Int32s = make([]int32, countOfVariables)
@@ -257,7 +258,7 @@ func createInputData(ied *emulator.IEDEmulator, samples int, countOfVariables in
 	return data
 }
 
-func createInputDataDualIED(ied1 *emulator.IEDEmulator, ied2 *emulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
+func createInputDataDualIED(ied1 *emulator.Emulator, ied2 *emulator.Emulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
 	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samples)
 	for i := range data {
 		data[i].Int32s = make([]int32, countOfVariables)
@@ -410,12 +411,12 @@ func TestEncodeDecode(t *testing.T) {
 			test := tests[name]
 
 			// settings for IED emulator
-			var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+			var ied *emulator.Emulator = createEmulator(test.samplingRate, 0)
 
 			// initialise data structure for input data
 			var data []slipstream.DatasetWithQuality
 			if test.countOfVariables == 16 {
-				var ied2 *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied2 *emulator.Emulator = createEmulator(test.samplingRate, 0)
 				data = createInputDataDualIED(ied, ied2, test.samples, test.countOfVariables, test.qualityChange)
 			} else {
 				data = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
@@ -470,7 +471,7 @@ func TestWrongID(t *testing.T) {
 			test := tests["a10-1"]
 
 			// settings for IED emulator
-			var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+			var ied *emulator.Emulator = createEmulator(test.samplingRate, 0)
 			var wrongID uuid.UUID = uuid.New()
 
 			// initialise data structure for input data
