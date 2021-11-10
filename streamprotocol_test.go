@@ -83,12 +83,12 @@ func createIEDEmulator(samplingRate int, phaseOffsetDeg float64) *iedemulator.IE
 		Fnom:         50.0,
 		Fdeviation:   0.0,
 		Ts:           1 / float64(samplingRate),
-		V: iedemulator.ThreePhaseEmulation{
+		V: &iedemulator.ThreePhaseEmulation{
 			PosSeqMag:   275000.0 / math.Sqrt(3) * math.Sqrt(2),
 			NoiseMax:    0.001,
 			PhaseOffset: phaseOffsetDeg * math.Pi / 180.0,
 		},
-		I: iedemulator.ThreePhaseEmulation{
+		I: &iedemulator.ThreePhaseEmulation{
 			PosSeqMag:       500.0,
 			PhaseOffset:     phaseOffsetDeg * math.Pi / 180.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
