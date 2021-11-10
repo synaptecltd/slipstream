@@ -1,4 +1,4 @@
-package streamprotocol
+package slipstream
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 // Simple8bThresholdSamples defines the number of samples per message required before using simple-8b encoding
 const Simple8bThresholdSamples = 16
 
-// TODO value of 5 is good in streamprotocol_test.go, but slightly worse for microcontroller data (0.36 Mbps vs 0.3 Mbps)
+// TODO value of 5 is good in slipstream_test.go, but slightly worse for microcontroller data (0.36 Mbps vs 0.3 Mbps)
 // DefaultDeltaEncodingLayers defines the default number of layers of delta encoding. 0 is no delta encoding (just use varint), 1 is delta encoding, etc.
 const DefaultDeltaEncodingLayers = 3
 

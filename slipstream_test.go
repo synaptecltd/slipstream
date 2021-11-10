@@ -1,4 +1,4 @@
-package streamprotocol_test
+package slipstream_test
 
 import (
 	"fmt"
@@ -14,8 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
-	"github.com/synaptec/synthesis/iedemulator"
-	"github.com/synaptec/synthesis/streamprotocol"
+	"github.com/synaptecltd/emulator"
 )
 
 // DevelopmentBuild enables additional debugging features
@@ -77,18 +76,18 @@ var tests = map[string]struct {
 	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
 }
 
-func createIEDEmulator(samplingRate int, phaseOffsetDeg float64) *iedemulator.IEDEmulator {
-	return &iedemulator.IEDEmulator{
+func createIEDEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.IEDEmulator {
+	return &emulator.IEDEmulator{
 		SamplingRate: samplingRate,
 		Fnom:         50.0,
 		Fdeviation:   0.0,
 		Ts:           1 / float64(samplingRate),
-		V: &iedemulator.ThreePhaseEmulation{
+		V: &emulator.ThreePhaseEmulation{
 			PosSeqMag:   275000.0 / math.Sqrt(3) * math.Sqrt(2),
 			NoiseMax:    0.001,
 			PhaseOffset: phaseOffsetDeg * math.Pi / 180.0,
 		},
-		I: &iedemulator.ThreePhaseEmulation{
+		I: &emulator.ThreePhaseEmulation{
 			PosSeqMag:       500.0,
 			PhaseOffset:     phaseOffsetDeg * math.Pi / 180.0,
 			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
@@ -114,14 +113,14 @@ func BenchmarkEncodeDecode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
-				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+				var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
 
 				// create encoder and decoder
-				stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-				streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				stream := slipstream.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				streamDecoder := slipstream.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 				b.StartTimer()
 
@@ -148,14 +147,14 @@ func BenchmarkEncode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
-				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+				var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
 
 				// create encoder and decoder
-				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				enc := slipstream.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				dec := slipstream.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 				// calling b.StartTimer() often slows things down
 				b.StartTimer()
@@ -188,14 +187,14 @@ func BenchmarkDecode(b1 *testing.B) {
 				test := tests[name]
 
 				// settings for IED emulator
-				var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 				// initialise data structure for input data
-				var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+				var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
 
 				// create encoder and decoder
-				enc := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-				dec := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				enc := slipstream.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+				dec := slipstream.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 				for d := range data {
 					buf, len, _ := enc.Encode(&data[d])
@@ -211,8 +210,8 @@ func BenchmarkDecode(b1 *testing.B) {
 	}
 }
 
-func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []streamprotocol.DatasetWithQuality {
-	var data []streamprotocol.DatasetWithQuality = make([]streamprotocol.DatasetWithQuality, samples)
+func createInputData(ied *emulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
+	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samples)
 	for i := range data {
 		data[i].Int32s = make([]int32, countOfVariables)
 		data[i].Q = make([]uint32, countOfVariables)
@@ -258,8 +257,8 @@ func createInputData(ied *iedemulator.IEDEmulator, samples int, countOfVariables
 	return data
 }
 
-func createInputDataDualIED(ied1 *iedemulator.IEDEmulator, ied2 *iedemulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []streamprotocol.DatasetWithQuality {
-	var data []streamprotocol.DatasetWithQuality = make([]streamprotocol.DatasetWithQuality, samples)
+func createInputDataDualIED(ied1 *emulator.IEDEmulator, ied2 *emulator.IEDEmulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
+	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samples)
 	for i := range data {
 		data[i].Int32s = make([]int32, countOfVariables)
 		data[i].Q = make([]uint32, countOfVariables)
@@ -332,7 +331,7 @@ type encodeStats struct {
 
 const earlyEncodingStopSamples = 100
 
-func encodeAndDecode(t *testing.T, data *[]streamprotocol.DatasetWithQuality, enc *streamprotocol.Encoder, dec *streamprotocol.Decoder, countOfVariables int, samplesPerMessage int, earlyEncodingStop bool) (*encodeStats, error) {
+func encodeAndDecode(t *testing.T, data *[]slipstream.DatasetWithQuality, enc *slipstream.Encoder, dec *slipstream.Decoder, countOfVariables int, samplesPerMessage int, earlyEncodingStop bool) (*encodeStats, error) {
 	encodeStats := encodeStats{}
 	totalSamplesRead := 0
 
@@ -411,21 +410,21 @@ func TestEncodeDecode(t *testing.T) {
 			test := tests[name]
 
 			// settings for IED emulator
-			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+			var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 
 			// initialise data structure for input data
-			var data []streamprotocol.DatasetWithQuality
+			var data []slipstream.DatasetWithQuality
 			if test.countOfVariables == 16 {
-				var ied2 *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+				var ied2 *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 				data = createInputDataDualIED(ied, ied2, test.samples, test.countOfVariables, test.qualityChange)
 			} else {
 				data = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
 			}
 
 			// create encoder and decoder
-			stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-			// streamDecoder := streamprotocol.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
-			streamDecoder := streamprotocol.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+			stream := slipstream.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+			// streamDecoder := slipstream.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
+			streamDecoder := slipstream.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 			if test.useSpatialRefs {
 				stream.SetSpatialRefs(test.countOfVariables, test.countOfVariables/8, test.countOfVariables/8, true)        // TODO test includeNeutral
@@ -471,15 +470,15 @@ func TestWrongID(t *testing.T) {
 			test := tests["a10-1"]
 
 			// settings for IED emulator
-			var ied *iedemulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
+			var ied *emulator.IEDEmulator = createIEDEmulator(test.samplingRate, 0)
 			var wrongID uuid.UUID = uuid.New()
 
 			// initialise data structure for input data
-			var data []streamprotocol.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
+			var data []slipstream.DatasetWithQuality = createInputData(ied, test.samples, test.countOfVariables, test.qualityChange)
 
 			// create encoder and decoder
-			stream := streamprotocol.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-			streamDecoder := streamprotocol.NewDecoder(wrongID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+			stream := slipstream.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
+			streamDecoder := slipstream.NewDecoder(wrongID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 			// encode the data
 			// when each message is complete, decode
