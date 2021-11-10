@@ -1,4 +1,8 @@
-# Design principles
+# Slipstream
+
+Slipstream is a method for lossless compression of power system data.
+
+## Design principles
 
 1. The protocol is designed for streaming raw measurement data, similar to the IEC 61850-9-2 Sampled Value protocol. It is designed to support high sample rate continuous point on wave (CPOW) voltage and current data, and also supports other measurement types.
 2. The data compression must be lossless.
@@ -11,13 +15,13 @@
 9. An error in one message should only invalidate that message, and not future messages.
 10. General purpose compression algorithms have already been shown to be ineffective or computationally expensive for CPOW data [^1].
 
-# Data types
+## Data types
 
 * 32-bit signed integer for all data values. This requires a scaled integer representation for floating-point data, but this approach has already been adopted for IEC 61850-9-2 encoding. However, the protocol could be extended for directly representing floating-point values in the future, using the method in [^2].
 * 32-bit unsigned integer for quality. This is intended to be based on the IEC 61850 quality specification, for which only 14 bits are used (including the "derived" indicator), and only 16 bits should ever be used. It is proposed here that the most significant byte is used for time quality, with the two least significant bytes used for data quality according to the IEC 61850 approach. The exact use is not prescribed at present, but 32 bits per data sample have been provisioned.
 * 64-bit signed integer for timestamp. This is based on the Go language representation, using nanoseconds relative to 1st January 1970 UTC, which is limited to a date between the years 1678 and 2262. Timestamps in STTP are restricted to 100 ns resolution, while suitable for output values such as frequency, it is very inaccurate for CPOW data, which could be sampled at inconvenient rates such as 14.4 kHz (so the 69444 ns sampling period would be truncated to 69400.00 ns, leading to an intrinsic 44.44 ns error). If the start of the data capture was always aligned to the second roll over point then the fraction of second value would always be zero, but the protocol should not be restricted in this way. Similarly, IEC 61850 and IEEE C37.118.2 timestamps only dedicate 24 bits to the fraction of second and have a poor resolution limit of 59.6 ns.
 
-# Protocol details
+## Protocol details
 
 With knowledge of the underlying data, the compression method can be tailored for much greater performance than generic compression such as gzip [^3]. Each quantity is compressed and encoded separately. This is the same method used in [^1], and is similar to how TimescaleDB performs compression on columns of data over time, rather than generically compressing each row as they are added to the database.
 
@@ -44,7 +48,7 @@ The protocol header contains the following fields:
 
 The next thing to encode is the first sample of each variable. Then, each sample is encoded using delta or delta-delta encoding. After all samples are encoded, the quality RLE section is encoded.
 
-# Compression performance
+## Compression performance
 
 Compression performance can typically reduce data to about 15% of the theoretical uncompressed sample size (assuming 4 bytes for data, 4 bytes for quality, and 8 bytes for timestamp). Higher sampling rates can compress down to <5%, often requiring less than 1 byte per new sample on average. Shorter messages with fewer samples will achieve compression of 15-25%. Compared to IEC 61850-9-2 SV, the performance is even better due to the additional overhead and repeated data inherent in the SV ASDU structure. For example, sampling at 14.4 kHz with 6 samples (ASDUs) per message (using the "LE" dataset with 8 variables) requires about 589 bytes for SV (including Ethernet header, but not including the "RefrTm" timestamp). This new protocol only requires about 134 bytes to convey the same information.
 
@@ -54,7 +58,7 @@ A disadvantage of the protocol is that changes in data values or quality values 
 
 Random noise in the encoded quantities will reduce compression performance. Harmonics will also have this effect, but to a lesser extent.
 
-# Other
+## Other
 
 Decoders must have knowledge of the encoding parameters. This means that Wireshark may be unable to provide diagnostic information, unless it is also able to access and decode the out-of-band data which describes the protocol instance (i.e. the sampling rate and number of variables).
 
@@ -66,7 +70,7 @@ The IEC 61850-9-2 SV protocol allows some flexibility. For example, in principle
 
 Internally, the encoder uses an alternating ping-pong buffer. This means that it is acceptable to read the output of the encoder while a new message starts being encoded. However, the output from the first message must be fully saved or copied before a third message is started. The encoder is not thread-safe, so a single instance should only be used from the same thread. This to ensure that the order of calls to Encode() is preserved. While mutex locking will synchronise access, it does not queue subsequent calls to Encode().
 
-# References
+## References
 
 [^1]: Blair, S. M., Roscoe, A. J., & Irvine, J. (2016). Real-time compression of IEC 61869-9 sampled value data. 2016 IEEE International Workshop on Applied Measurements for Power Systems (AMPS), 1–6. https://doi.org/10.1109/AMPS.2016.7602854 https://strathprints.strath.ac.uk/57710/1/Blair_etal_AMPS2016_Real_time_compression_of_IEC_61869_9_sampled_value_data.pdf
 [^2]: Andersen, M. P., & Culler, D. (2016). BTrDB: Optimizing Storage System Design for Timeseries Processing. 14th USENIX Conference on File and Storage Technologies (FAST ’16). https://www.usenix.org/conference/fast16/technical-sessions/presentation/andersen
