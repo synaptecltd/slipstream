@@ -70,6 +70,14 @@ The IEC 61850-9-2 SV protocol allows some flexibility. For example, in principle
 
 Internally, the encoder uses an alternating ping-pong buffer. This means that it is acceptable to read the output of the encoder while a new message starts being encoded. However, the output from the first message must be fully saved or copied before a third message is started. The encoder is not thread-safe, so a single instance should only be used from the same thread. This to ensure that the order of calls to Encode() is preserved. While mutex locking will synchronise access, it does not queue subsequent calls to Encode().
 
+## Tests
+
+You can run the test suite locally with:
+
+```
+go test -v
+```
+
 ## References
 
 [^1]: Blair, S. M., Roscoe, A. J., & Irvine, J. (2016). Real-time compression of IEC 61869-9 sampled value data. 2016 IEEE International Workshop on Applied Measurements for Power Systems (AMPS), 1–6. https://doi.org/10.1109/AMPS.2016.7602854 https://strathprints.strath.ac.uk/57710/1/Blair_etal_AMPS2016_Real_time_compression_of_IEC_61869_9_sampled_value_data.pdf
