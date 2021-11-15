@@ -52,29 +52,30 @@ var tests = map[string]struct {
 	earlyEncodingStop bool
 	useSpatialRefs    bool
 	includeNeutral    bool
+	expectedSize float64 // percentage of pre-encoding size
 }{
-	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1},
-	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2},
-	"a10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true},
-	"a10-10":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10},
-	"a4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true},
-	"a8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true},
-	"b4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2},
-	"b4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80},
-	"b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60},
-	"b4000-800":      {samplingRate: 4000, countOfVariables: 8, samples: 800, samplesPerMessage: 800},
-	"b4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000},
-	"b4000-4000s1":   {samplingRate: 4000, countOfVariables: 16, samples: 4000, samplesPerMessage: 4000, useSpatialRefs: false},
-	"b4000-4000s2":   {samplingRate: 4000, countOfVariables: 16, samples: 4000, samplesPerMessage: 4000, useSpatialRefs: true},
-	"c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2},
-	"c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20},
-	"d14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6},
-	"d4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true},
-	"e14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400},
-	"e14400-14400s":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, earlyEncodingStop: true},
-	"e14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true},
-	"f40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000},
-	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000},
+	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1, expectedSize: 53},
+	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, expectedSize: 37},
+	"a10-2q":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, qualityChange: true, expectedSize: 37},
+	"a10-10":         {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 10, expectedSize: 37},
+	"a4-2q":          {samplingRate: 4000, countOfVariables: 8, samples: 4, samplesPerMessage: 2, qualityChange: true, expectedSize: 37},
+	"a8-8q":          {samplingRate: 4000, countOfVariables: 8, samples: 8, samplesPerMessage: 8, qualityChange: true, expectedSize: 24},
+	"b4000-2":        {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 2, expectedSize: 37},
+	"b4000-80":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 80, expectedSize: 18},
+	"b4000-60":       {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 60, expectedSize: 18},
+	"b4000-800":      {samplingRate: 4000, countOfVariables: 8, samples: 800, samplesPerMessage: 800, expectedSize: 17},
+	"b4000-4000":     {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, expectedSize: 18},
+	"b4000-4000s1":   {samplingRate: 4000, countOfVariables: 16, samples: 4000, samplesPerMessage: 4000, useSpatialRefs: false, expectedSize: 18},
+	"b4000-4000s2":   {samplingRate: 4000, countOfVariables: 16, samples: 4000, samplesPerMessage: 4000, useSpatialRefs: true, expectedSize: 18},
+	"c4800-2":        {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 2, expectedSize: 36},
+	"c4800-20":       {samplingRate: 4800, countOfVariables: 8, samples: 4800, samplesPerMessage: 20, expectedSize: 20},
+	"d14400-6":       {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 6, expectedSize: 24},
+	"d4000-4000q":    {samplingRate: 4000, countOfVariables: 8, samples: 4000, samplesPerMessage: 4000, qualityChange: true, expectedSize: 17},
+	"e14400-14400":   {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, expectedSize: 36},
+	"e14400-14400s":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, earlyEncodingStop: true, expectedSize: 20},
+	"e14400-14400q":  {samplingRate: 14400, countOfVariables: 8, samples: 14400, samplesPerMessage: 14400, qualityChange: true, expectedSize: 18},
+	"f40000-40000":   {samplingRate: 4000, countOfVariables: 8, samples: 40000, samplesPerMessage: 40000, expectedSize: 17},
+	"g150000-150000": {samplingRate: 150000, countOfVariables: 8, samples: 150000, samplesPerMessage: 150000, expectedSize: 16},
 }
 
 func createEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.Emulator {
@@ -424,7 +425,6 @@ func TestEncodeDecode(t *testing.T) {
 
 			// create encoder and decoder
 			stream := slipstream.NewEncoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
-			// streamDecoder := slipstream.NewChannelDecoder(ID, test.countOfVariables, test.samplingRate)
 			streamDecoder := slipstream.NewDecoder(ID, test.countOfVariables, test.samplingRate, test.samplesPerMessage)
 
 			if test.useSpatialRefs {
@@ -444,6 +444,8 @@ func TestEncodeDecode(t *testing.T) {
 			meanBytesPerMessage := float64(encodeStats.totalBytes) / float64(encodeStats.messages) // includes header overhead
 			percent := 100 * float64(meanBytesPerMessage) / float64(theoryBytesPerMessage)
 			// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
+
+			assert.LessOrEqual(t, percent, tests[name].expectedSize)
 
 			tab.AppendRow([]interface{}{
 				encodeStats.samples,
