@@ -65,7 +65,7 @@ errDecode := dec.DecodeToBuffer(buf, length)
 if errDecode == nil {
     var decodedData []float64 = make([]float64, samplesToEncode)
     for i := range dec.Out {
-        // 
+        // extract individual values
         for j := 0; j < dec.Int32Count; j++ {
         	fmt.Println("timestamp:", dec.Out[i].T, "value:", dec.Out[i].Int32s[j], "quality:", dec.Out[i].Q[j])
         }
