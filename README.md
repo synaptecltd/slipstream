@@ -86,7 +86,7 @@ Call this before encoding:
 2. The data compression must be lossless.
 3. The protocol should be flexible. It should support any number of samples per message so that it can be used for different applications where efficient representation of measurement data is useful. For example, 2 to 8 samples per message may be appropriate for real-time applications while still benefitting from compression, and much larger messages could be used for archiving fault or event records, with excellent compression opportunities.
 4. Optimise for the lowest data size for minimal network data transfer and for small file sizes for saving event captures to permanent storage.
-5. Assume that out-of-band communications will agree sampling rate and number of variables to be transferred, similar to IEEE C37.118.2 configuration frames and STTP. This helps reduce the amount of data to be send in the main data stream to allow successful decoding.
+5. Assume that out-of-band communications will agree sampling rate and number of variables to be transferred, similar to IEEE C37.118.2 configuration frames and STTP. This helps reduce the amount of data to be sent in the main data stream to allow successful decoding.
 6. Ensure that data quality and time synchronisation information are strictly preserved and provided for every data sample.
 7. Prefer efficient encode and decode processing, with up-front allocations, where possible. However, the compression will naturally improve the end-to-end latency, due to the reduced data to be processed and transferred.
 8. The protocol should produce a byte stream which is suitable for a variety of transport methods, such as Ethernet, UDP, TCP, HTTP, WebSocket, and saving to a file.
@@ -96,8 +96,8 @@ Call this before encoding:
 ## Data types
 
 * 32-bit signed integer for all data values. This requires a scaled integer representation for floating-point data, but this approach has already been adopted for IEC 61850-9-2 encoding. However, the protocol could be extended for directly representing floating-point values in the future, using the method in [^2].
-* 32-bit unsigned integer for quality. This is intended to be based on the IEC 61850 quality specification, for which only 14 bits are used (including the "derived" indicator), and only 16 bits should ever be used. It is proposed here that the most significant byte is used for time quality, with the two least significant bytes used for data quality according to the IEC 61850 approach. The exact use is not prescribed at present, but 32 bits per data sample have been provisioned.
-* 64-bit signed integer for timestamp. This is based on the Go language representation, using nanoseconds relative to 1st January 1970 UTC, which is limited to a date between the years 1678 and 2262. Timestamps in STTP are restricted to 100 ns resolution, while suitable for output values such as frequency, it is very inaccurate for CPOW data, which could be sampled at inconvenient rates such as 14.4 kHz (so the 69444 ns sampling period would be truncated to 69400.00 ns, leading to an intrinsic 44.44 ns error). If the start of the data capture was always aligned to the second roll over point then the fraction of second value would always be zero, but the protocol should not be restricted in this way. Similarly, IEC 61850 and IEEE C37.118.2 timestamps only dedicate 24 bits to the fraction of second and have a poor resolution limit of 59.6 ns.
+* 32-bit unsigned integer for quality. This is intended to be based on the IEC 61850 quality specification, for which only 14 bits are used (including the "derived" indicator), and only 16 bits should ever be used. It is proposed here that the most significant byte is used for time quality, with the two least significant bytes used for data quality according to the IEC 61850 approach. The exact use is not prescribed at present, but 32 bits per data sample has been provisioned.
+* 64-bit signed integer for timestamp. This is based on the Go language representation, using nanoseconds relative to 1st January 1970 UTC, which is limited to a date between the years 1678 and 2262. Timestamps in STTP are restricted to 100 ns resolution, while suitable for output values such as synchrophasors and frequency, it is very inaccurate for CPOW data, which could be sampled at inconvenient rates such as 14.4 kHz (so the 69444 ns sampling period would be truncated to 69400.00 ns, leading to an intrinsic 44.44 ns error). If the start of the data capture was always aligned to the second roll over point then the fraction of second value would always be zero, but the protocol should not be restricted in this way. Similarly, IEC 61850 and IEEE C37.118.2 timestamps only dedicate 24 bits to the fraction of second and have a poor resolution limit of 59.6 ns.
 
 ## Protocol details
 
@@ -136,7 +136,7 @@ A disadvantage of the protocol is that changes in data values or quality values 
 
 Random noise in the encoded quantities will reduce compression performance. Harmonics will also have this effect, but to a lesser extent.
 
-## Other
+## Other notes
 
 Decoders must have knowledge of the encoding parameters. This means that Wireshark may be unable to provide diagnostic information, unless it is also able to access and decode the out-of-band data which describes the protocol instance (i.e. the sampling rate and number of variables).
 
@@ -144,7 +144,7 @@ It is not possible to decode the quality values until all the data values in a m
 
 It is assumed that three-phase quantities should also include a neutral component, similar to the IEC 61850 "LE" profile.
 
-The IEC 61850-9-2 SV protocol allows some flexibility. For example, in principle, ASDUs in the same message could be mixed from different datasets. This new protocol does not allow this. However, it would be simpler modify the SV dataset to encompass the additional data, rather than having multiple dataset, or send separate SV streams. It would make also make it easier to encode and decode, compared to mixing ASDU from different datasets.
+The IEC 61850-9-2 SV protocol allows some flexibility. For example, in principle, ASDUs in the same message could be mixed from different datasets. This new protocol does not allow this. However, it would be simpler modify the SV dataset to encompass the additional data, rather than having multiple datasets, or send separate SV streams. It would make also make it less complex to encode and decode, compared to mixing ASDU from different datasets.
 
 Internally, the encoder uses an alternating ping-pong buffer. This means that it is acceptable to read the output of the encoder while a new message starts being encoded. However, the output from the first message must be fully saved or copied before a third message is started. The encoder is not thread-safe, so a single instance should only be used from the same thread. This to ensure that the order of calls to Encode() is preserved. While mutex locking will synchronise access, it does not queue subsequent calls to Encode().
 
