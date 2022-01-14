@@ -4,7 +4,7 @@ Slipstream is a method for lossless compression of power system data.
 
 ## Example usage
 
-Open the [example file](https://github.com/synaptecltd/slipstream/example/example.go) and run `go run example.go`. The operation is summarised below.
+Open the [example file](https://github.com/synaptecltd/slipstream/example/example.go) and run `go run example.go`. Typical operation is summarised below.
 
 ### Initialise an encoder
 
@@ -21,7 +21,7 @@ enc := slipstream.NewEncoder(uuid, variablePerSample, samplingRate, samplesPerMe
 
 The encoder can be reused for subsequent messages.
 
-### Generate and encode data
+### Generate data
 
 ```Go
 // use the Synaptec "emulator" library to generate three-phase voltage and current test signals
@@ -40,7 +40,11 @@ emulator := &emulator.Emulator{
 // use emulator to generate test data
 samplesToEncode := 480 // equates to 1 full message
 data := createInputData(emulator, samplesToEncode, variablePerSample)
+```
 
+### Encode data using Slipstream
+
+```Go
 // loop through data samples and encode into Slipstream format
 for d := range data {
     buf, length, err := enc.Encode(&data[d])

@@ -44,7 +44,11 @@ func main() {
 		// check if message encoding has finished (or an error occurred)
 		if err == nil && length > 0 {
 			// buf should now contain an encoded message, and can be send over the network or stored
-			fmt.Println("message size:", len(buf), "bytes")
+
+			theoryBytes := variablePerSample * samplesPerMessage * 16
+			fmt.Println("Original data size:", theoryBytes, "bytes")
+			fmt.Printf("Encoded Slipstream message size: %d bytes (%1.2f%% of original)\n", len(buf), 100.0*float64(len(buf))/float64(theoryBytes))
+			// fmt.Println("Encoded message size:", len(buf), "bytes", "ratio:", 100.0*float64(len(buf))/float64(theoryBytes), "% of original")
 
 			// initialise a decoder
 			dec := slipstream.NewDecoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
