@@ -49,7 +49,7 @@ data := createInputData(emulator, samplesToEncode, variablePerSample)
 for d := range data {
     buf, length, err := enc.Encode(&data[d])
 
-    // check if message encoding has finished (or an error occurred)
+    // check if message encoding has finished
     if err == nil && length > 0 {
         // buf should now contain an encoded message, and can be send over the network or stored
     }
