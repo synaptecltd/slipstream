@@ -67,7 +67,7 @@ if errDecode == nil {
     for i := range dec.Out {
         // extract individual values
         for j := 0; j < dec.Int32Count; j++ {
-        	fmt.Println("timestamp:", dec.Out[i].T, "value:", dec.Out[i].Int32s[j], "quality:", dec.Out[i].Q[j])
+            fmt.Println("timestamp:", dec.Out[i].T, "value:", dec.Out[i].Int32s[j], "quality:", dec.Out[i].Q[j])
         }
     }
 }
