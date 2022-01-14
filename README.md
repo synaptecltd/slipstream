@@ -4,7 +4,7 @@ Slipstream is a method for lossless compression of power system data.
 
 ## Example usage
 
-Open the [example file](https://github.com/synaptecltd/slipstream/example/example.go) and run `go run example.go`. Typical operation is summarised below.
+Open the [example file](https://github.com/synaptecltd/slipstream/examples/basic/example.go) and run `go run example.go`. Typical operation is summarised below.
 
 ### Initialise an encoder
 
