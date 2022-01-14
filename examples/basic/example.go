@@ -25,11 +25,11 @@ func main() {
 		SamplingRate: samplingRate,
 		Fnom:         50.0,
 		Ts:           1 / float64(samplingRate),
-		V: &emulator.ThreePhaseEmulation{
-			PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
-		},
 		I: &emulator.ThreePhaseEmulation{
 			PosSeqMag: 500.0,
+		},
+		V: &emulator.ThreePhaseEmulation{
+			PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
 		},
 	}
 
@@ -56,12 +56,15 @@ func main() {
 			if errDecode == nil {
 				var decodedData []float64 = make([]float64, samplesToEncode)
 				for i := range dec.Out {
-					// extract the phase A current values and convert to Amps
+					// extract the phase A current values (at index '0') and convert to Amps
 					decodedData[i] = float64(dec.Out[i].Int32s[0]) / 1000.0
+
+					// extract individual values
 					// for j := 0; j < dec.Int32Count; j++ {
 					// 	fmt.Println("timestamp:", dec.Out[i].T, "value:", dec.Out[i].Int32s[j], "quality:", dec.Out[i].Q[j])
 					// }
 				}
+
 				fmt.Println("Decoded phase A current data:")
 				graph := asciigraph.Plot(decodedData, asciigraph.Height(10), asciigraph.Width(80))
 				fmt.Println(graph)

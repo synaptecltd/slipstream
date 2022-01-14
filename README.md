@@ -9,17 +9,13 @@ Open the [example file](https://github.com/synaptecltd/slipstream/example/exampl
 ### Initialise an encoder
 
 ```
-import (
-    "github.com/google/uuid"
-    "github.com/synaptecltd/emulator"
-    "github.com/synaptecltd/slipstream"
-)
-
+// define settings
 uuid := uuid.New()
-variablePerSample := 8      // number of "variables", such as voltages or currents
-samplingRate := 14400       // Hz
-samplesPerMessage := 14400  // each message contains 1 second of data
+variablePerSample := 8   // number of "variables", such as voltages or currents. 8 is equivalent to IEC 61850-9-2 LE
+samplingRate := 4800     // Hz
+samplesPerMessage := 480 // each message contains 100 ms of data
 
+// initialise an encoder
 enc := slipstream.NewEncoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
 ```
 
@@ -33,29 +29,24 @@ emulator := &emulator.Emulator{
     SamplingRate: samplingRate,
     Fnom:         50.0,
     Ts:           1 / float64(samplingRate),
-    V: &emulator.ThreePhaseEmulation{
-        PosSeqMag:   400000.0 / math.Sqrt(3) * math.Sqrt(2),
-        NoiseMax:    0.0001,
-    },
     I: &emulator.ThreePhaseEmulation{
-        PosSeqMag:       500.0,
-        NoiseMax:        0.001,
+        PosSeqMag: 500.0,
+    },
+    V: &emulator.ThreePhaseEmulation{
+        PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
     },
 }
 
 // use emulator to generate test data
-samplesToEncode := 14400
-var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samplesToEncode)
-for i := range data {
-    data[i].Int32s = make([]int32, variablePerSample)
-    data[i].Q = make([]uint32, variablePerSample)
-}
+samplesToEncode := 480 // equates to 1 full message
+data := createInputData(emulator, samplesToEncode, variablePerSample)
 
 // loop through data samples and encode into Slipstream format
 for d := range data {
-    buf, len, err := enc.Encode(&data)
+    buf, length, err := enc.Encode(&data[d])
 
-    if len > 0 {
+    // check if message encoding has finished (or an error occurred)
+    if err == nil && length > 0 {
         // buf should now contain an encoded message, and can be send over the network or stored
     }
 }
@@ -64,15 +55,21 @@ for d := range data {
 ### Initialise and use a decoder
 
 ```
+// initialise a decoder
 dec := slipstream.NewDecoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
 
-errDecode := dec.DecodeToBuffer(buf, len)
+// decode the message
+errDecode := dec.DecodeToBuffer(buf, length)
 
 // iterate through the decoded samples
-for i := range dec.Out {
-    fmt.Println("timestamp:", dec.Out[i].T[j],
-                "value:", dec.Out[i].Int32s[j],
-                "quality:", dec.Out[i].Q[j])
+if errDecode == nil {
+    var decodedData []float64 = make([]float64, samplesToEncode)
+    for i := range dec.Out {
+        // 
+        for j := 0; j < dec.Int32Count; j++ {
+        	fmt.Println("timestamp:", dec.Out[i].T, "value:", dec.Out[i].Int32s[j], "quality:", dec.Out[i].Q[j])
+        }
+    }
 }
 ```
 
