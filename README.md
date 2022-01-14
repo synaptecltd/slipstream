@@ -21,7 +21,7 @@ enc := slipstream.NewEncoder(uuid, variablePerSample, samplingRate, samplesPerMe
 
 The encoder can be reused for subsequent messages.
 
-### Generate data
+### Generate test data samples
 
 ```Go
 // use the Synaptec "emulator" library to generate three-phase voltage and current test signals
