@@ -2,14 +2,16 @@ package slipstream
 
 import (
 	"errors"
+
 	gzip "github.com/klauspost/compress/gzip"
 	"github.com/synaptecltd/encoding/bitops"
 
 	"bytes"
 	"encoding/binary"
-	"github.com/google/uuid"
 	"io"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/synaptecltd/encoding/simple8b"
 )
@@ -117,7 +119,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 
 	// TODO inspect performance here
 	s.gzBuf.Reset()
-	if s.samplesPerMessage > UseGzipThresholdSamples {
+	if actualSamples > UseGzipThresholdSamples {
 		gr, err := gzip.NewReader(bytes.NewBuffer(buf[length:]))
 		if err != nil {
 			return err
@@ -282,8 +284,11 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				sampleNumber = actualSamples
 			} else {
 				// write up to valUnsigned remaining Q values for this variable
-				for j := sampleNumber + 1; j < int(valUnsigned); j++ {
-					s.Out[j].Q[i] = s.Out[sampleNumber].Q[i]
+				for j := sampleNumber + 1; j < int(valUnsigned); /*&& j < sampleNumber*/ j++ {
+					if sampleNumber < len(s.Out) && j < len(s.Out) {
+						// fmt.Println(i, j, valUnsigned, sampleNumber)
+						s.Out[j].Q[i] = s.Out[sampleNumber].Q[i]
+					}
 				}
 				sampleNumber += int(valUnsigned)
 			}

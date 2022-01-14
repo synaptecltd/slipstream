@@ -3,12 +3,13 @@ package slipstream
 import (
 	"bytes"
 	"encoding/binary"
+	"sync"
+
 	"github.com/google/uuid"
 	gzip "github.com/klauspost/compress/gzip"
 	"github.com/rs/zerolog/log"
 	"github.com/synaptecltd/encoding/bitops"
 	"github.com/synaptecltd/encoding/simple8b"
-	"sync"
 )
 
 // Encoder defines a stream protocol instance
@@ -296,7 +297,7 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 
 	// TODO inspect performance here
 	activeOutBuf.Reset()
-	if s.SamplesPerMessage > UseGzipThresholdSamples {
+	if s.encodedSamples > UseGzipThresholdSamples {
 		// do not compress header
 		activeOutBuf.Write(s.buf[0:actualHeaderLen])
 
@@ -334,5 +335,3 @@ func (s *Encoder) endEncode() ([]byte, int, error) {
 	return activeOutBuf.Bytes(), activeOutBuf.Len(), nil
 	// return s.bufB[0:finalLen], finalLen, nil
 }
-
-
