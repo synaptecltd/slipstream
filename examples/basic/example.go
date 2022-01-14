@@ -45,10 +45,10 @@ func main() {
 		if err == nil && length > 0 {
 			// buf should now contain an encoded message, and can be send over the network or stored
 
+			// print encoding performance results
 			theoryBytes := variablePerSample * samplesPerMessage * 16
 			fmt.Println("Original data size:", theoryBytes, "bytes")
 			fmt.Printf("Encoded Slipstream message size: %d bytes (%1.2f%% of original)\n", len(buf), 100.0*float64(len(buf))/float64(theoryBytes))
-			// fmt.Println("Encoded message size:", len(buf), "bytes", "ratio:", 100.0*float64(len(buf))/float64(theoryBytes), "% of original")
 
 			// initialise a decoder
 			dec := slipstream.NewDecoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
@@ -58,7 +58,7 @@ func main() {
 
 			// iterate through the decoded samples
 			if errDecode == nil {
-				var decodedData []float64 = make([]float64, samplesToEncode)
+				decodedData := make([]float64, samplesToEncode)
 				for i := range dec.Out {
 					// extract the phase A current values (at index '0') and convert to Amps
 					decodedData[i] = float64(dec.Out[i].Int32s[0]) / 1000.0
@@ -69,6 +69,7 @@ func main() {
 					// }
 				}
 
+				// print plot of decoded data in terminal
 				fmt.Println("Decoded phase A current data:")
 				graph := asciigraph.Plot(decodedData, asciigraph.Height(10), asciigraph.Width(80))
 				fmt.Println(graph)
@@ -78,7 +79,8 @@ func main() {
 }
 
 func createInputData(ied *emulator.Emulator, samples int, countOfVariables int) []slipstream.DatasetWithQuality {
-	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samples)
+	// intialise data structure
+	data := make([]slipstream.DatasetWithQuality, samples)
 	for i := range data {
 		data[i].Int32s = make([]int32, countOfVariables)
 		data[i].Q = make([]uint32, countOfVariables)
@@ -90,10 +92,12 @@ func createInputData(ied *emulator.Emulator, samples int, countOfVariables int) 
 		// compute emulated waveform data
 		ied.Step()
 
-		// calculate timestamp
+		// extract emulated data and store in Slipstream input structure:
+
+		// emulate timestamp
 		data[i].T = uint64(i)
 
-		// set waveform data
+		// set waveform data for current and voltage
 		data[i].Int32s[0] = int32(ied.I.A * 1000.0)
 		data[i].Int32s[1] = int32(ied.I.B * 1000.0)
 		data[i].Int32s[2] = int32(ied.I.C * 1000.0)
