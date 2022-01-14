@@ -8,7 +8,7 @@ Open the [example file](https://github.com/synaptecltd/slipstream/example/exampl
 
 ### Initialise an encoder
 
-```
+```Go
 // define settings
 uuid := uuid.New()
 variablePerSample := 8   // number of "variables", such as voltages or currents. 8 is equivalent to IEC 61850-9-2 LE
@@ -23,7 +23,7 @@ The encoder can be reused for subsequent messages.
 
 ### Generate and encode data
 
-```
+```Go
 // use the Synaptec "emulator" library to generate three-phase voltage and current test signals
 emulator := &emulator.Emulator{
     SamplingRate: samplingRate,
@@ -54,7 +54,7 @@ for d := range data {
 
 ### Initialise and use a decoder
 
-```
+```Go
 // initialise a decoder
 dec := slipstream.NewDecoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
 
