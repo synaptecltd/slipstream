@@ -52,7 +52,7 @@ var tests = map[string]struct {
 	earlyEncodingStop bool
 	useSpatialRefs    bool
 	includeNeutral    bool
-	expectedSize float64 // percentage of pre-encoding size
+	expectedSize      float64 // percentage of pre-encoding size
 }{
 	"a10-1":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 1, expectedSize: 53},
 	"a10-2":          {samplingRate: 4000, countOfVariables: 8, samples: 10, samplesPerMessage: 2, expectedSize: 37},

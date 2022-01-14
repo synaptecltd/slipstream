@@ -2,6 +2,87 @@
 
 Slipstream is a method for lossless compression of power system data.
 
+## Example usage
+
+Open the [example file](https://github.com/synaptecltd/slipstream/example/example.go) and run `go run example.go`. The operation is summarised below.
+
+### Initialise an encoder
+
+```
+import (
+    "github.com/google/uuid"
+    "github.com/synaptecltd/emulator"
+    "github.com/synaptecltd/slipstream"
+)
+
+uuid := uuid.New()
+variablePerSample := 8      // number of "variables", such as voltages or currents
+samplingRate := 14400       // Hz
+samplesPerMessage := 14400  // each message contains 1 second of data
+
+enc := slipstream.NewEncoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
+```
+
+The encoder can be reused for subsequent messages.
+
+### Generate and encode data
+
+```
+// use the Synaptec "emulator" library to generate three-phase voltage and current test signals
+emulator := &emulator.Emulator{
+    SamplingRate: samplingRate,
+    Fnom:         50.0,
+    Ts:           1 / float64(samplingRate),
+    V: &emulator.ThreePhaseEmulation{
+        PosSeqMag:   400000.0 / math.Sqrt(3) * math.Sqrt(2),
+        NoiseMax:    0.0001,
+    },
+    I: &emulator.ThreePhaseEmulation{
+        PosSeqMag:       500.0,
+        NoiseMax:        0.001,
+    },
+}
+
+// use emulator to generate test data
+samplesToEncode := 14400
+var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samplesToEncode)
+for i := range data {
+    data[i].Int32s = make([]int32, variablePerSample)
+    data[i].Q = make([]uint32, variablePerSample)
+}
+
+// loop through data samples and encode into Slipstream format
+for d := range data {
+    buf, len, err := enc.Encode(&data)
+
+    if len > 0 {
+        // buf should now contain an encoded message, and can be send over the network or stored
+    }
+}
+```
+
+### Initialise and use a decoder
+
+```
+dec := slipstream.NewDecoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
+
+errDecode := dec.DecodeToBuffer(buf, len)
+
+// iterate through the decoded samples
+for i := range dec.Out {
+    fmt.Println("timestamp:", dec.Out[i].T[j],
+                "value:", dec.Out[i].Int32s[j],
+                "quality:", dec.Out[i].Q[j])
+}
+```
+
+<!-- ### Optionally, use features to optimise the encoding efficiency
+
+Call this before encoding:
+
+```
+``` -->
+
 ## Design principles
 
 1. The protocol is designed for streaming raw measurement data, similar to the IEC 61850-9-2 Sampled Value protocol. It is designed to support high sample rate continuous point on wave (CPOW) voltage and current data, and also supports other measurement types.
