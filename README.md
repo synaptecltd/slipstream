@@ -1,6 +1,6 @@
 # Slipstream
 
-Slipstream is a method for lossless compression of power system data.
+Slipstream is a method for lossless compression of power system data. It is tailored for efficiently handling sensor waveform data streams, including at high sample rates. It provides much higher compression performance than generic approaches such as gzip, and with faster message encoding and decoding. It can be used for streaming data in real-time, or storing waveform captures to files. This can significantly reduce data bandwidth requirements and latency.
 
 ## Example usage
 
