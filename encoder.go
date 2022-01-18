@@ -207,8 +207,8 @@ func (s *Encoder) EndEncode() ([]byte, int, error) {
 	return s.endEncode()
 }
 
-// StopEncode ends the encoding early, but does not write to the file
-func (s *Encoder) StopEncode() {
+// CancelEncode ends the encoding early, but does not write to the file
+func (s *Encoder) CancelEncode() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
