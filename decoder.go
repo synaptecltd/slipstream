@@ -284,9 +284,8 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 				sampleNumber = actualSamples
 			} else {
 				// write up to valUnsigned remaining Q values for this variable
-				for j := sampleNumber + 1; j < int(valUnsigned); /*&& j < sampleNumber*/ j++ {
+				for j := sampleNumber + 1; j < int(valUnsigned); j++ {
 					if sampleNumber < len(s.Out) && j < len(s.Out) {
-						// fmt.Println(i, j, valUnsigned, sampleNumber)
 						s.Out[j].Q[i] = s.Out[sampleNumber].Q[i]
 					}
 				}
