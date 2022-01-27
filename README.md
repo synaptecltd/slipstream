@@ -4,7 +4,7 @@ Slipstream is a method for lossless compression of power system data. It is tail
 
 ## Example usage
 
-Open the [example file](https://github.com/synaptecltd/slipstream/examples/basic/example.go) and run `go run example.go`. Typical operation is summarised below.
+Open the [example file](https://github.com/synaptecltd/slipstream/blob/main/examples/basic/example.go) and run `go run example.go`. Typical operation is summarised below.
 
 ### Initialise an encoder
 
@@ -25,16 +25,12 @@ The encoder can be reused for subsequent messages.
 
 ```Go
 // use the Synaptec "emulator" library to generate three-phase voltage and current test signals
-emulator := &emulator.Emulator{
-    SamplingRate: samplingRate,
-    Fnom:         50.0,
-    Ts:           1 / float64(samplingRate),
-    I: &emulator.ThreePhaseEmulation{
-        PosSeqMag: 500.0,
-    },
-    V: &emulator.ThreePhaseEmulation{
-        PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
-    },
+emulator := emulator.NewEmulator(samplingRate, 0)
+emulator.I = &emulator.ThreePhaseEmulation{
+    PosSeqMag: 500.0,
+}
+emulator.V = &emulator.ThreePhaseEmulation{
+    PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
 }
 
 // use emulator to generate test data
@@ -67,7 +63,6 @@ errDecode := dec.DecodeToBuffer(buf, length)
 
 // iterate through the decoded samples
 if errDecode == nil {
-    var decodedData []float64 = make([]float64, samplesToEncode)
     for i := range dec.Out {
         // extract individual values
         for j := 0; j < dec.Int32Count; j++ {
