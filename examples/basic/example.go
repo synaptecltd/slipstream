@@ -14,6 +14,7 @@ func main() {
 	// define settings
 	uuid := uuid.New()
 	variablePerSample := 8   // number of "variables", such as voltages or currents. 8 is equivalent to IEC 61850-9-2 LE
+	systemFrequency := 50.03 // Hz
 	samplingRate := 4800     // Hz
 	samplesPerMessage := 480 // each message contains 100 ms of data
 
@@ -21,21 +22,17 @@ func main() {
 	enc := slipstream.NewEncoder(uuid, variablePerSample, samplingRate, samplesPerMessage)
 
 	// use the Synaptec "emulator" library to generate three-phase voltage and current test signals
-	emulator := &emulator.Emulator{
-		SamplingRate: samplingRate,
-		Fnom:         50.0,
-		Ts:           1 / float64(samplingRate),
-		I: &emulator.ThreePhaseEmulation{
-			PosSeqMag: 500.0,
-		},
-		V: &emulator.ThreePhaseEmulation{
-			PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
-		},
+	emu := emulator.NewEmulator(samplingRate, systemFrequency)
+	emu.I = &emulator.ThreePhaseEmulation{
+		PosSeqMag: 500.0,
+	}
+	emu.V = &emulator.ThreePhaseEmulation{
+		PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
 	}
 
 	// use emulator to generate test data
 	samplesToEncode := 480 // equates to 1 full message
-	data := createInputData(emulator, samplesToEncode, variablePerSample)
+	data := createInputData(emu, samplesToEncode, variablePerSample)
 
 	// loop through data samples and encode into Slipstream format
 	for d := range data {

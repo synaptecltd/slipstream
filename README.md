@@ -12,6 +12,7 @@ Open the [example file](https://github.com/synaptecltd/slipstream/blob/main/exam
 // define settings
 uuid := uuid.New()
 variablePerSample := 8   // number of "variables", such as voltages or currents. 8 is equivalent to IEC 61850-9-2 LE
+systemFrequency := 50.03 // Hz
 samplingRate := 4800     // Hz
 samplesPerMessage := 480 // each message contains 100 ms of data
 
@@ -25,17 +26,17 @@ The encoder can be reused for subsequent messages.
 
 ```Go
 // use the Synaptec "emulator" library to generate three-phase voltage and current test signals
-emulator := emulator.NewEmulator(samplingRate, 0)
-emulator.I = &emulator.ThreePhaseEmulation{
-    PosSeqMag: 500.0,
-}
-emulator.V = &emulator.ThreePhaseEmulation{
+emu := emulator.NewEmulator(samplingRate, systemFrequency)
+emu.V = &emulator.ThreePhaseEmulation{
     PosSeqMag: 400000.0 / math.Sqrt(3) * math.Sqrt(2),
+}
+emu.I = &emulator.ThreePhaseEmulation{
+    PosSeqMag: 500.0,
 }
 
 // use emulator to generate test data
 samplesToEncode := 480 // equates to 1 full message
-data := createInputData(emulator, samplesToEncode, variablePerSample)
+data := createInputData(emu, samplesToEncode, variablePerSample)
 ```
 
 ### Encode data using Slipstream

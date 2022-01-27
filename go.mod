@@ -5,10 +5,10 @@ go 1.17
 require (
 	github.com/google/uuid v1.3.0
 	github.com/jedib0t/go-pretty/v6 v6.2.4
-	github.com/klauspost/compress v1.13.6
-	github.com/rs/zerolog v1.26.0
+	github.com/klauspost/compress v1.14.2
+	github.com/rs/zerolog v1.26.1
 	github.com/stretchr/testify v1.7.0
-	github.com/synaptecltd/emulator v0.0.0-20211110164139-7aa014c74a0f
+	github.com/synaptecltd/emulator v0.0.0-20220127115403-e66872cb6e96
 	github.com/synaptecltd/encoding v0.0.0-20201122000806-323ace522625
 )
 

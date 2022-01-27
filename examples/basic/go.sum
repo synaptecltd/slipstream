@@ -29,8 +29,9 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
-github.com/synaptecltd/emulator v0.0.0-20211110164139-7aa014c74a0f h1:kGN8RF0bJtprWMo2OWHmxNLGYc8cZ3DuZCctNdreWvg=
 github.com/synaptecltd/emulator v0.0.0-20211110164139-7aa014c74a0f/go.mod h1:8HzcI2s9FfrIwCKOo9Jr4RcA8Hdm6Cy9rUxPzz1MNdI=
+github.com/synaptecltd/emulator v0.0.0-20220127115403-e66872cb6e96 h1:CJrs/LVZGyrRc5+a8npGVlp1U89W6JMJXX8Oxnb3+N8=
+github.com/synaptecltd/emulator v0.0.0-20220127115403-e66872cb6e96/go.mod h1:8HzcI2s9FfrIwCKOo9Jr4RcA8Hdm6Cy9rUxPzz1MNdI=
 github.com/synaptecltd/encoding v0.0.0-20201122000806-323ace522625 h1:LbQmp/owOXYKNzI+i1jzmKNvbwi9p4Je1uSdzWzwsWE=
 github.com/synaptecltd/encoding v0.0.0-20201122000806-323ace522625/go.mod h1:pS+h1+LhUTo08PQ3LXnGcySLO6eIbgyO7bwiXAwHND8=
 github.com/synaptecltd/slipstream v0.0.0-20220119115731-a00724d88881 h1:u84l+ddGx0fZBa3lfLlEdWlVnKssYc9LJHTs8rPaY64=
