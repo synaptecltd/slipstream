@@ -79,25 +79,23 @@ var tests = map[string]struct {
 }
 
 func createEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.Emulator {
-	return &emulator.Emulator{
-		SamplingRate: samplingRate,
-		Fnom:         50.03,
-		Fdeviation:   0.0,
-		Ts:           1 / float64(samplingRate),
-		V: &emulator.ThreePhaseEmulation{
-			PosSeqMag:   400000.0 / math.Sqrt(3) * math.Sqrt(2),
-			NoiseMax:    0.000001,
-			PhaseOffset: phaseOffsetDeg * math.Pi / 180.0,
-		},
-		I: &emulator.ThreePhaseEmulation{
-			PosSeqMag:       500.0,
-			PhaseOffset:     phaseOffsetDeg * math.Pi / 180.0,
-			HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
-			HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
-			HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-			NoiseMax:        0.00001,
-		},
+	emu := emulator.NewEmulator(samplingRate, 50.03)
+
+	emu.V = &emulator.ThreePhaseEmulation{
+		PosSeqMag:   400000.0 / math.Sqrt(3) * math.Sqrt(2),
+		NoiseMax:    0.000001,
+		PhaseOffset: phaseOffsetDeg * math.Pi / 180.0,
 	}
+	emu.I = &emulator.ThreePhaseEmulation{
+		PosSeqMag:       500.0,
+		PhaseOffset:     phaseOffsetDeg * math.Pi / 180.0,
+		HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
+		HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
+		HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
+		NoiseMax:        0.00001,
+	}
+
+	return emu
 }
 
 func BenchmarkEncodeDecode(b1 *testing.B) {
