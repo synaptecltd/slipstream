@@ -18,8 +18,10 @@ int main() {
 
     // encoder/decoder settings
     const int int32Count = 8;
-    int sampling_rate = 4000;
-    int samplesPerMessage = 2;
+    const int sampling_rate = 4000;
+    const int samplesPerMessage = 2;
+
+    // TODO add loops
 
     // create encoders
     NewEncoder(ID, int32Count, sampling_rate, samplesPerMessage);
@@ -52,6 +54,12 @@ int main() {
     printf("encoded length: %d bytes\n", ret3.r0);
     struct EncodeFlat_return ret4 = EncodeFlat(ID2, 0, Int32s, Q);
     printf("encoded length: %d bytes\n", ret4.r0);
+
+    // need to free byte arrays allocated
+    // free(ret.r1);
+    // free(ret2.r1);
+    free(ret3.r1);
+    free(ret4.r1);
    
     // //Call Add() - passing integer params, integer result
     // GoInt a = 12;
