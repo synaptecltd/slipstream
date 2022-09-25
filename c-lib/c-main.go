@@ -1,15 +1,12 @@
 package main
 
 /*
-struct Encoder {
-    int Int32Count;
-    int Y;
-};
+#include <stdint.h>
 
 struct DatasetWithQuality {
-    int T;
-    int *Int32s;
-    int *Q;
+    uint64_t	T;
+    int32_t 	*Int32s;
+    uint32_t	*Q;
 };
 */
 import "C"
@@ -100,27 +97,8 @@ func RemoveEncoder(ID []byte) {
 	// encList.Remove(enc)
 }
 
-// //export Encode
-// func Encode(ID []byte, data *C.struct_DatasetWithQuality) (int, unsafe.Pointer) {
-// 	goUUID, _ := uuid.FromBytes(ID)
-// 	enc := findEncByID(goUUID)
-// 	if enc == nil {
-// 		return 0, nil
-// 	}
-
-// 	// TODO need to copy data into Go struct?
-// 	goData := &slipstream.DatasetWithQuality{
-// 		T: uint64(data.T),
-// 		// Int32s: C.CSlice(data.Int32s),
-// 	}
-// 	buf, numBytes, _ := enc.Encode(goData)
-
-// 	// need to use utility function to copy bytes to C
-// 	return numBytes, C.CBytes(buf)
-// }
-
-//export EncodeFlat
-func EncodeFlat(ID []byte, T uint64, Int32s []int32, Q []uint32) (int, unsafe.Pointer) {
+//export Encode
+func Encode(ID []byte, T uint64, Int32s []int32, Q []uint32) (length int, data unsafe.Pointer) {
 	goUUID, _ := uuid.FromBytes(ID)
 	enc := findEncByID(goUUID)
 	if enc == nil {
@@ -128,16 +106,73 @@ func EncodeFlat(ID []byte, T uint64, Int32s []int32, Q []uint32) (int, unsafe.Po
 		return 0, nil
 	}
 
-	// TODO need to copy data into Go struct?
+	// assign data into Go struct
 	goData := &slipstream.DatasetWithQuality{
 		T:      T,
 		Int32s: Int32s,
 		Q:      Q,
 	}
+
+	// encode this data sample
 	buf, numBytes, _ := enc.Encode(goData)
 
-	// need to use utility function to copy bytes to C
+	// need to use CBytes() utility function to copy bytes to C, data must be free'd later
 	return numBytes, C.CBytes(buf)
+}
+
+//export Decode
+func Decode(ID []byte, data unsafe.Pointer, length int) bool {
+	goUUID, _ := uuid.FromBytes(ID)
+	dec := findDecByID(goUUID)
+	if dec == nil {
+		fmt.Println("not found")
+		return false
+	}
+
+	// assign data into Go struct
+	// goData := &slipstream.DatasetWithQuality{
+	// 	T:      T,
+	// 	Int32s: Int32s,
+	// 	Q:      Q,
+	// }
+
+	// encode this data sample
+	err := dec.DecodeToBuffer(unsafe.Slice((*byte)(data), length), length)
+	if err != nil {
+		return false
+	}
+
+	// return dec.Out
+	return true
+
+	// need to use CBytes() utility function to copy bytes to C, data must be free'd later
+	// return numBytes, C.CBytes(buf)
+}
+
+//export GetDecodedIndex
+func GetDecodedIndex(ID []byte, sampleIndex int, valueIndex int) (ok bool, T uint64, Value int32, Q uint32) {
+	goUUID, _ := uuid.FromBytes(ID)
+	dec := findDecByID(goUUID)
+	if dec == nil {
+		fmt.Println("not found")
+		return false, 0, 0, 0
+	}
+
+	if sampleIndex >= len(dec.Out) || valueIndex >= len(dec.Out[sampleIndex].Int32s) {
+		return false, 0, 0, 0
+	}
+
+	return true, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s[valueIndex], dec.Out[sampleIndex].Q[valueIndex]
+
+	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
+
+	// return &C.struct_DatasetWithQuality{
+	// 	T:      C.uint64_t(sampleIndex),
+	// 	Int32s: (*_Ctype_int32_t)(C.CBytes(dec.Out[sampleIndex].Int32s)),
+	// 	// T:      _Ctype_ulonglong(dec.Out[index].T),
+	// 	// Int32s: (*_Ctype_int)(&dec.Out[index].Int32s[0]),
+	// 	// Q:      (*_Ctype_uint)(&dec.Out[index].Q[0]),
+	// }
 }
 
 func main() {}

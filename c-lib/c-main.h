@@ -21,15 +21,12 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 
 #line 3 "c-main.go"
 
-struct Encoder {
-    int Int32Count;
-    int Y;
-};
+#include <stdint.h>
 
 struct DatasetWithQuality {
-    int T;
-    int *Int32s;
-    int *Q;
+    uint64_t	T;
+    int32_t 	*Int32s;
+    uint32_t	*Q;
 };
 
 #line 1 "cgo-generated-wrapper"
@@ -92,12 +89,22 @@ extern __declspec(dllexport) void NewEncoder(GoSlice ID, GoInt int32Count, GoInt
 extern __declspec(dllexport) void NewDecoder(GoSlice ID, GoInt int32Count, GoInt samplingRate, GoInt samplesPerMessage);
 extern __declspec(dllexport) void RemoveEncoder(GoSlice ID);
 
-/* Return type for EncodeFlat */
-struct EncodeFlat_return {
-	GoInt r0;
-	void* r1;
+/* Return type for Encode */
+struct Encode_return {
+	GoInt r0; /* length */
+	void* r1; /* data */
 };
-extern __declspec(dllexport) struct EncodeFlat_return EncodeFlat(GoSlice ID, GoUint64 T, GoSlice Int32s, GoSlice Q);
+extern __declspec(dllexport) struct Encode_return Encode(GoSlice ID, GoUint64 T, GoSlice Int32s, GoSlice Q);
+extern __declspec(dllexport) GoUint8 Decode(GoSlice ID, void* data, GoInt length);
+
+/* Return type for GetDecodedIndex */
+struct GetDecodedIndex_return {
+	GoUint8 r0; /* ok */
+	GoUint64 r1; /* T */
+	GoInt32 r2; /* Value */
+	GoUint32 r3; /* Q */
+};
+extern __declspec(dllexport) struct GetDecodedIndex_return GetDecodedIndex(GoSlice ID, GoInt sampleIndex, GoInt valueIndex);
 
 #ifdef __cplusplus
 }
