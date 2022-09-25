@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <chrono>
-#include <time.h>
+// #include <time.h>
 #include "c-main.h"
 
 // note that C++ is used only for accurate timing using std::chrono
@@ -13,10 +13,14 @@
 // https://gist.github.com/helinwang/2c7bd2867ea5110f70e6431a7c80cd9b
 // https://stackoverflow.com/questions/43646589/does-passing-a-slice-to-golang-from-c-do-a-memory-copy/43646947#43646947
 
-#define INTEGER_SCALING 1000.0
-#define PI              3.1415926535897932384626433832795
-#define FNOM            50.0
-#define NOISE_MAX       0.01
+#define INTEGER_SCALING_I   1000.0
+#define INTEGER_SCALING_V   100.0
+#define PI                  3.1415926535897932384626433832795
+#define TWO_PI_OVER_THREE   2.0943951023931954923084289221863
+#define MAG_I               500
+#define MAG_V               10000
+#define FNOM                50.01
+#define NOISE_MAX           0.01
 
 double random(double min, double max) {
     double range = (max - min); 
@@ -24,10 +28,20 @@ double random(double min, double max) {
     return min + (rand() / div);
 }
 
+int32_t getSample(double t, bool isVoltage, double phase) {
+    double scaling = INTEGER_SCALING_I;
+    double mag = MAG_I;
+    if (isVoltage) {
+        scaling = INTEGER_SCALING_V;
+        mag = MAG_V;
+    }
+    return (int32_t) (scaling * (mag * sin(2*PI*FNOM*t + phase) + random(-NOISE_MAX, NOISE_MAX)));
+}
+
 int main() {
     printf("using Go lib from C/C++\n");
 
-    srand(time(NULL));
+    srand(0);
 
     // initialise some UUIDs as Go slides of 16 bytes
     GoUint8 ID_bytes[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -39,8 +53,8 @@ int main() {
 
     // encoder/decoder settings
     const int int32Count = 8;
-    const int samplingRate = 40000;
-    const int samplesPerMessage = 40000;
+    const int samplingRate = 4000;
+    const int samplesPerMessage = 4000;
 
     // pre-calculate all data samples
     struct DatasetWithQuality *samples;
@@ -50,13 +64,31 @@ int main() {
         samples[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
         samples[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
 
+        // emulate three-phase current and voltage waveform samples
+        double t = (double) s / (double) samplingRate;
+        samples[s].Int32s[0] = getSample(t, false, 0.0);
+        samples[s].Int32s[1] = getSample(t, false, -TWO_PI_OVER_THREE);
+        samples[s].Int32s[2] = getSample(t, false, TWO_PI_OVER_THREE);
+        samples[s].Int32s[3] = samples[s].Int32s[0] + samples[s].Int32s[1] + samples[s].Int32s[2];
+        samples[s].Int32s[4] = getSample(t, true, 0.0);
+        samples[s].Int32s[5] = getSample(t, true, -TWO_PI_OVER_THREE);
+        samples[s].Int32s[6] = getSample(t, true, TWO_PI_OVER_THREE);
+        samples[s].Int32s[7] = samples[s].Int32s[4] + samples[s].Int32s[5] + samples[s].Int32s[6];
+
+        // set quality values
         for (int i = 0; i < int32Count; i++) {
-            // TODO expand to likely three-phase V+I
-            double t = (double) s / (double) samplingRate;
-            samples[s].Int32s[i] = (int32_t) (INTEGER_SCALING * (1000.0 * sin(2*PI*FNOM*t) + random(-NOISE_MAX, NOISE_MAX)));
             samples[s].Q[i] = 0;
             // printf("%d\n", sample.Int32s[i]);
         }
+    }
+
+    // pre-allocate storage for decoder output
+    struct DatasetWithQuality *samplesOut;
+    samplesOut = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
+    for (int s = 0; s < samplesPerMessage; s++) {
+        samplesOut[s].T = s;
+        samplesOut[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
+        samplesOut[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
     }
 
     // create encoders
@@ -100,13 +132,23 @@ int main() {
 
             if (decoded == true) {
                 struct GetDecodedIndex_return sample_out;
+
+                // struct GetDecodedIndexAll_return sample_out_all;
+
+                bool ok = GetDecoded(ID2, samplesOut, samplesPerMessage);
+                printf("decoder: %d\n", ok);
+
                 for (int s = 0; s < samplesPerMessage; s++) {
                     for (int i = 0; i < int32Count; i++) {
-                        sample_out = GetDecodedIndex(ID2, s, i);
-                        if (sample_out.r0 == 0 || sample_out.r1 != samples[s].T || sample_out.r2 != samples[s].Int32s[i] || sample_out.r3 != samples[s].Q[i]) {
-                            printf("error: decode mismatch: %d, %d\n", s, i);
-                        }
+                        // sample_out = GetDecodedIndex(ID2, s, i);
+                        // if (sample_out.r0 == 0 || sample_out.r1 != samples[s].T || sample_out.r2 != samples[s].Int32s[i] || sample_out.r3 != samples[s].Q[i]) {
+                        //     printf("error: decode mismatch: %d, %d\n", s, i);
+                        // }
                         // printf("%d\n", sample_out.r2);
+
+                        if (samplesOut[s].Int32s[i] != samples[s].Int32s[i]) {
+                            printf("error: decode mismatch: %d, %d (%d, %d)\n", s, i, samplesOut[s].Int32s[i], samples[s].Int32s[i]);
+                        }
                     }
                 }
             }

@@ -105,6 +105,16 @@ struct GetDecodedIndex_return {
 	GoUint32 r3; /* Q */
 };
 extern __declspec(dllexport) struct GetDecodedIndex_return GetDecodedIndex(GoSlice ID, GoInt sampleIndex, GoInt valueIndex);
+extern __declspec(dllexport) GoUint8 GetDecoded(GoSlice ID, void* data, GoInt length);
+
+/* Return type for GetDecodedIndexAll */
+struct GetDecodedIndexAll_return {
+	GoUint8 r0; /* ok */
+	GoUint64 r1; /* T */
+	GoSlice r2; /* Value */
+	GoSlice r3; /* Q */
+};
+extern __declspec(dllexport) struct GetDecodedIndexAll_return GetDecodedIndexAll(GoSlice ID, GoInt sampleIndex);
 
 #ifdef __cplusplus
 }

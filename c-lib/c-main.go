@@ -162,7 +162,89 @@ func GetDecodedIndex(ID []byte, sampleIndex int, valueIndex int) (ok bool, T uin
 		return false, 0, 0, 0
 	}
 
+	// TODO try pre-allocating a structure in C, then create glue function to copy data from Go
+	//      or use similar approach to Decode(), but send slice of DatasetWithQuality "owned" by C code
+
 	return true, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s[valueIndex], dec.Out[sampleIndex].Q[valueIndex]
+
+	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
+
+	// return &C.struct_DatasetWithQuality{
+	// 	T:      C.uint64_t(sampleIndex),
+	// 	Int32s: (*_Ctype_int32_t)(C.CBytes(dec.Out[sampleIndex].Int32s)),
+	// 	// T:      _Ctype_ulonglong(dec.Out[index].T),
+	// 	// Int32s: (*_Ctype_int)(&dec.Out[index].Int32s[0]),
+	// 	// Q:      (*_Ctype_uint)(&dec.Out[index].Q[0]),
+	// }
+}
+
+//export GetDecoded
+func GetDecoded(ID []byte, data unsafe.Pointer, length int) (ok bool) {
+	goUUID, _ := uuid.FromBytes(ID)
+	dec := findDecByID(goUUID)
+	if dec == nil {
+		fmt.Println("not found")
+		return false
+	}
+
+	// if sampleIndex >= len(dec.Out) || valueIndex >= len(dec.Out[sampleIndex].Int32s) {
+	// 	return false
+	// }
+
+	// TODO try pre-allocating a structure in C, then create glue function to copy data from Go
+	//      or use similar approach to Decode(), but send slice of DatasetWithQuality "owned" by C code
+
+	// dataSlice := unsafe.Slice((*C.struct_DatasetWithQuality)(data), length)
+	dataSlice := (*[1 << 30]C.struct_DatasetWithQuality)(unsafe.Pointer(data))[:length:length]
+
+	for s := range dataSlice {
+		dataSlice[s].T = C.uint64_t(dec.Out[s].T)
+
+		slice := (*[1 << 30]int32)(unsafe.Pointer(dataSlice[s].Int32s))[:dec.Int32Count:dec.Int32Count]
+		sliceQ := (*[1 << 30]uint32)(unsafe.Pointer(dataSlice[s].Q))[:dec.Int32Count:dec.Int32Count]
+
+		for i := 0; i < dec.Int32Count; i++ {
+			slice[i] = dec.Out[s].Int32s[i]
+			sliceQ[i] = dec.Out[s].Q[i]
+			// dataSlice[s].Int32s[i] = dec.Out[s].Int32s[i]
+			// unsafe.Slice((*int32)(dataSlice[s].Int32s), dec.Int32Count)[i] = dec.Out[s].Int32s[i]
+			// unsafe.Slice((*uint32)(dataSlice[s].Q), dec.Int32Count)[i] = dec.Out[s].Q[i]
+		}
+
+		// if s == 27 {
+		// 	fmt.Println(slice)
+		// }
+	}
+
+	return true //, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s[valueIndex], dec.Out[sampleIndex].Q[valueIndex]
+
+	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
+
+	// return &C.struct_DatasetWithQuality{
+	// 	T:      C.uint64_t(sampleIndex),
+	// 	Int32s: (*_Ctype_int32_t)(C.CBytes(dec.Out[sampleIndex].Int32s)),
+	// 	// T:      _Ctype_ulonglong(dec.Out[index].T),
+	// 	// Int32s: (*_Ctype_int)(&dec.Out[index].Int32s[0]),
+	// 	// Q:      (*_Ctype_uint)(&dec.Out[index].Q[0]),
+	// }
+}
+
+//export GetDecodedIndexAll
+func GetDecodedIndexAll(ID []byte, sampleIndex int) (ok bool, T uint64, Value []int32, Q []uint32) {
+	goUUID, _ := uuid.FromBytes(ID)
+	dec := findDecByID(goUUID)
+	if dec == nil {
+		fmt.Println("not found")
+		return false, 0, nil, nil
+	}
+
+	if sampleIndex >= len(dec.Out) {
+		return false, 0, nil, nil
+	}
+
+	// TODO need to convert slice to C array (*uint32_t)
+
+	return true, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s, dec.Out[sampleIndex].Q
 
 	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
 
