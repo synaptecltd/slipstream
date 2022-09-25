@@ -25,7 +25,19 @@ int main() {
     const int samplingRate = 4000;
     const int samplesPerMessage = 4000;
 
-    // TODO add loops for params
+    // pre-calculate all samples
+    struct DatasetWithQuality *samples;
+    samples = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
+    for (int s = 0; s < samplesPerMessage; s++) {
+        samples[s].T = 0;
+        samples[s].Int32s = (int*) malloc(int32Count * sizeof(int));
+        samples[s].Q = (int*) malloc(int32Count * sizeof(int));
+
+        for (int i = 0; i < int32Count; i++) {
+            samples[s].Int32s[i] = (int) (1000.0*sin(2*3.14*50.0*((float) s / (float) samplingRate)));
+            // printf("%d\n", sample.Int32s[i]);
+        }
+    }
 
     // create encoders
     NewEncoder(ID, int32Count, samplingRate, samplesPerMessage);
@@ -35,24 +47,23 @@ int main() {
 
     struct DatasetWithQuality sample;
     sample.T = 0;
-    sample.Int32s = (int*) malloc(int32Count);
-    sample.Q = (int*) malloc(int32Count);
+    sample.Int32s = (int*) malloc(int32Count * sizeof(int));
+    sample.Q = (int*) malloc(int32Count * sizeof(int));
 
-    // create a single data sample
     for (int s = 0; s < samplesPerMessage; s++) {
         // set values
-        for (int i = 0; i < int32Count; i++) {
-            sample.Int32s[i] = (int) (1000.0*sin(2*3.14*50.0*((float) s / (float) samplingRate)));
-            // printf("%d\n", sample.Int32s[i]);
-        }
+        // for (int i = 0; i < int32Count; i++) {
+        //     sample.Int32s[i] = (int) (1000.0*sin(2*3.14*50.0*((float) s / (float) samplingRate)));
+        //     // printf("%d\n", sample.Int32s[i]);
+        // }
 
-        // convert to GoSlice
+        // convert a single data sample to GoSlice
         GoSlice Int32s;
-        Int32s.data = (void*) sample.Int32s;
+        Int32s.data = (void*) samples[s].Int32s;
         Int32s.len = int32Count;
         Int32s.cap = int32Count;
         GoSlice Q;
-        Q.data = (void*) sample.Q;
+        Q.data = (void*) samples[s].Q;
         Q.len = int32Count;
         Q.cap = int32Count;
 
