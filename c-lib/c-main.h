@@ -92,13 +92,6 @@ extern __declspec(dllexport) void NewEncoder(GoSlice ID, GoInt int32Count, GoInt
 extern __declspec(dllexport) void NewDecoder(GoSlice ID, GoInt int32Count, GoInt samplingRate, GoInt samplesPerMessage);
 extern __declspec(dllexport) void RemoveEncoder(GoSlice ID);
 
-/* Return type for Encode */
-struct Encode_return {
-	GoInt r0;
-	void* r1;
-};
-extern __declspec(dllexport) struct Encode_return Encode(GoSlice ID, struct DatasetWithQuality* data);
-
 /* Return type for EncodeFlat */
 struct EncodeFlat_return {
 	GoInt r0;

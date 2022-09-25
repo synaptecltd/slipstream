@@ -15,6 +15,7 @@ struct DatasetWithQuality {
 import "C"
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/google/uuid"
@@ -99,30 +100,31 @@ func RemoveEncoder(ID []byte) {
 	// encList.Remove(enc)
 }
 
-//export Encode
-func Encode(ID []byte, data *C.struct_DatasetWithQuality) (int, unsafe.Pointer) {
-	goUUID, _ := uuid.FromBytes(ID)
-	enc := findEncByID(goUUID)
-	if enc == nil {
-		return 0, nil
-	}
+// //export Encode
+// func Encode(ID []byte, data *C.struct_DatasetWithQuality) (int, unsafe.Pointer) {
+// 	goUUID, _ := uuid.FromBytes(ID)
+// 	enc := findEncByID(goUUID)
+// 	if enc == nil {
+// 		return 0, nil
+// 	}
 
-	// TODO need to copy data into Go struct?
-	goData := &slipstream.DatasetWithQuality{
-		T: uint64(data.T),
-		// Int32s: C.CSlice(data.Int32s),
-	}
-	buf, numBytes, _ := enc.Encode(goData)
+// 	// TODO need to copy data into Go struct?
+// 	goData := &slipstream.DatasetWithQuality{
+// 		T: uint64(data.T),
+// 		// Int32s: C.CSlice(data.Int32s),
+// 	}
+// 	buf, numBytes, _ := enc.Encode(goData)
 
-	// need to use utility function to copy bytes to C
-	return numBytes, C.CBytes(buf)
-}
+// 	// need to use utility function to copy bytes to C
+// 	return numBytes, C.CBytes(buf)
+// }
 
 //export EncodeFlat
 func EncodeFlat(ID []byte, T uint64, Int32s []int32, Q []uint32) (int, unsafe.Pointer) {
 	goUUID, _ := uuid.FromBytes(ID)
 	enc := findEncByID(goUUID)
 	if enc == nil {
+		fmt.Println("not found")
 		return 0, nil
 	}
 
