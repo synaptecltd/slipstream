@@ -46,23 +46,23 @@ using Go lib from C/C++
 
 *** 1. perform encoding of all samples ***
 
-samples encoded: 4000, length: 38498 bytes
-compression efficiency: 15.04% of original size
+samples encoded: 4000, length: 46490 bytes
+compression efficiency: 9.08% of original size
 decoding successful
 
 total duration:         1.05 ms
-encode:                 0.53 ms
+encode:                 0.52 ms
 decode:                 0.52 ms
 decode with processing: 0.52 ms
 
 *** 2. perform iterative encoding of samples ***
 
-samples encoded: 4000, length: 38498 bytes
-compression efficiency: 15.04% of original size
+samples encoded: 4000, length: 46498 bytes
+compression efficiency: 9.08% of original size
 decoding successful
 
-total duration:         5.77 ms
-encode:                 5.24 ms
+total duration:         6.24 ms
+encode:                 5.22 ms
 decode:                 0.52 ms
-decode with processing: 0.52 ms
+decode with processing: 1.03 ms
 ```

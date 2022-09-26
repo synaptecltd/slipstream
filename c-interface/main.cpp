@@ -11,41 +11,11 @@
 #define PI                  3.1415926535897932384626433832795
 #define TWO_PI_OVER_THREE   2.0943951023931954923084289221863
 #define MAG_I               500
-#define MAG_V               10000
+#define MAG_V               326598.63   // 400000.0 / sqrt(3) * sqrt(2)
 #define FNOM                50.01
 #define NOISE_MAX           0.01
 
-double random(double min, double max) {
-    double range = (max - min); 
-    double div = RAND_MAX / range;
-    return min + (rand() / div);
-}
-
-/*
- * getSample generates current or voltage waveform data for testing.
- */
-int32_t getSample(double t, bool isVoltage, double phase) {
-    double scaling = INTEGER_SCALING_I;
-    double mag = MAG_I;
-    if (isVoltage) {
-        scaling = INTEGER_SCALING_V;
-        mag = MAG_V;
-    }
-    return (int32_t) (scaling * (mag * sin(2*PI*FNOM*t + phase) + random(-NOISE_MAX, NOISE_MAX)));
-}
-
-struct DatasetWithQuality *allocateSamples(int int32Count, int samplesPerMessage) {
-    struct DatasetWithQuality *samples;
-    samples = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
-    for (int s = 0; s < samplesPerMessage; s++) {
-        samples[s].T = s;
-        samples[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
-        samples[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
-    }
-    return samples;
-}
-
-/*
+/**
  * SlipstreamTest is a container for storing Slipstream encoder/decoder data and monitoring info.
  */
 typedef struct SlipstreamTest {
@@ -71,7 +41,60 @@ typedef struct SlipstreamTest {
     std::chrono::high_resolution_clock::time_point start, endEncode, endAll, startDecode, endDecode, endProcessedDecodeOutput;
 } SlipstreamTest;
 
-/*
+/**
+ * random is a simple random number generator for adding noise to emulated measurements.
+ */
+double random(double min, double max) {
+    double range = (max - min); 
+    double div = RAND_MAX / range;
+    return min + (rand() / div);
+}
+
+/**
+ * getSample generates current or voltage waveform data for testing.
+ */
+int32_t getSample(double t, bool isVoltage, double phase) {
+    double scaling = INTEGER_SCALING_I;
+    double mag = MAG_I;
+    if (isVoltage) {
+        scaling = INTEGER_SCALING_V;
+        mag = MAG_V;
+    }
+    return (int32_t) (scaling * (mag * sin(2*PI*FNOM*t + phase) + random(-NOISE_MAX, NOISE_MAX)));
+}
+
+/**
+ * allocateSamples allocates memory for data sample storage.
+ */
+struct DatasetWithQuality *allocateSamples(int int32Count, int samplesPerMessage) {
+    struct DatasetWithQuality *samples;
+    samples = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
+    for (int s = 0; s < samplesPerMessage; s++) {
+        samples[s].T = s;
+        samples[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
+        samples[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
+    }
+    return samples;
+}
+
+/**
+ * freeSlipstreamTest frees memory for data sample storage.
+ */
+void freeSlipstreamTest(SlipstreamTest *test) {
+    for (int s = 0; s < test->samplesPerMessage; s++) {
+        free(test->samples[s].Int32s);
+        free(test->samples[s].Q);
+        free(test->samplesOut[s].Int32s);
+        free(test->samplesOut[s].Q);
+    }
+    free(test->samples);
+    free(test->samplesOut);
+
+    RemoveEncoder(test->ID);
+    RemoveDecoder(test->ID);
+}
+
+/**
  * initialiseTestParams sets up a SlipstreamTest container and allocates memory.
  */
 void initialiseTestParams(SlipstreamTest *test, GoUint8 ID_bytes[16]) {
@@ -112,24 +135,27 @@ void initialiseTestParams(SlipstreamTest *test, GoUint8 ID_bytes[16]) {
     NewDecoder(test->ID, test->int32Count, test->samplingRate, test->samplesPerMessage);
 }
 
-void freeSlipstreamTest(SlipstreamTest *test) {
+/**
+ * validateData checks the the every sample of the decoded output matches the original data.
+ */
+void validateData(SlipstreamTest *test) {
     for (int s = 0; s < test->samplesPerMessage; s++) {
-        free(test->samples[s].Int32s);
-        free(test->samples[s].Q);
-        free(test->samplesOut[s].Int32s);
-        free(test->samplesOut[s].Q);
+        for (int i = 0; i < test->int32Count; i++) {
+            if (test->samplesOut[s].T != test->samples[s].T || test->samplesOut[s].Int32s[i] != test->samples[s].Int32s[i] || test->samplesOut[s].Q[i] != test->samples[s].Q[i]) {
+                printf("error: decode mismatch: %d, %d (%d, %d)\n", s, i, test->samplesOut[s].Int32s[i], test->samples[s].Int32s[i]);
+            }
+        }
     }
-    free(test->samples);
-    free(test->samplesOut);
-
-    RemoveEncoder(test->ID);
-    RemoveDecoder(test->ID);
 }
 
+/**
+ * printResults outputs test results.
+ */
 void printResults(SlipstreamTest *test) {
     // overall results
     printf("samples encoded: %d, length: %d bytes\n", test->encodedSamples, test->encodedLength);
-    double efficiency = 100.0 * test->encodedLength / (test->int32Count * 8 * test->samplesPerMessage);
+    int bytesPerSample = 8 + 4 + 4; // timestamp, value, quality
+    double efficiency = 100.0 * test->encodedLength / (test->int32Count * bytesPerSample * test->samplesPerMessage);
     printf("compression efficiency: %.2f%% of original size\n", efficiency);
     if (test->decoded == true) {
         printf("decoding successful\n");
@@ -181,13 +207,7 @@ int main() {
     if (batchEncode.decoded == true) {
         bool ok = GetDecoded(batchEncode.ID, batchEncode.samplesOut, batchEncode.samplesPerMessage);
 
-        for (int s = 0; s < batchEncode.samplesPerMessage; s++) {
-            for (int i = 0; i < batchEncode.int32Count; i++) {
-                if (batchEncode.samplesOut[s].T != batchEncode.samples[s].T || batchEncode.samplesOut[s].Int32s[i] != batchEncode.samples[s].Int32s[i] || batchEncode.samplesOut[s].Q[i] != batchEncode.samples[s].Q[i]) {
-                    printf("error: decode mismatch: %d, %d (%d, %d)\n", s, i, batchEncode.samplesOut[s].Int32s[i], batchEncode.samples[s].Int32s[i]);
-                }
-            }
-        }
+        validateData(&batchEncode);
     }
     batchEncode.endProcessedDecodeOutput = std::chrono::high_resolution_clock::now();
     batchEncode.endAll = std::chrono::high_resolution_clock::now();
@@ -233,18 +253,7 @@ int main() {
             if (iterativeEncode.decoded == true) {
                 bool ok = GetDecoded(iterativeEncode.ID, iterativeEncode.samplesOut, iterativeEncode.samplesPerMessage);
 
-                for (int s = 0; s < iterativeEncode.samplesPerMessage; s++) {
-                    for (int i = 0; i < iterativeEncode.int32Count; i++) {
-                        // sample_out = GetDecodedIndex(ID2, s, i);
-                        // if (sample_out.r0 == 0 || sample_out.r1 != samples[s].T || sample_out.r2 != samples[s].Int32s[i] || sample_out.r3 != samples[s].Q[i]) {
-                        //     printf("error: decode mismatch: %d, %d\n", s, i);
-                        // }
-
-                        if (iterativeEncode.samplesOut[s].T != iterativeEncode.samples[s].T || iterativeEncode.samplesOut[s].Int32s[i] != iterativeEncode.samples[s].Int32s[i] || iterativeEncode.samplesOut[s].Q[i] != iterativeEncode.samples[s].Q[i]) {
-                            printf("error: decode mismatch: %d, %d (%d, %d)\n", s, i, iterativeEncode.samplesOut[s].Int32s[i], iterativeEncode.samples[s].Int32s[i]);
-                        }
-                    }
-                }
+                validateData(&iterativeEncode);
             }
             
             // need to free byte arrays allocated
