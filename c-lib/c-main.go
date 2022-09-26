@@ -162,22 +162,11 @@ func GetDecodedIndex(ID []byte, sampleIndex int, valueIndex int) (ok bool, T uin
 		return false, 0, 0, 0
 	}
 
-	// TODO try pre-allocating a structure in C, then create glue function to copy data from Go
-	//      or use similar approach to Decode(), but send slice of DatasetWithQuality "owned" by C code
-
 	return true, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s[valueIndex], dec.Out[sampleIndex].Q[valueIndex]
-
-	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
-
-	// return &C.struct_DatasetWithQuality{
-	// 	T:      C.uint64_t(sampleIndex),
-	// 	Int32s: (*_Ctype_int32_t)(C.CBytes(dec.Out[sampleIndex].Int32s)),
-	// 	// T:      _Ctype_ulonglong(dec.Out[index].T),
-	// 	// Int32s: (*_Ctype_int)(&dec.Out[index].Int32s[0]),
-	// 	// Q:      (*_Ctype_uint)(&dec.Out[index].Q[0]),
-	// }
 }
 
+// GetDecoded maps decoded Slipstream data into a DatasetWithQuality struct allocated in C code
+//
 //export GetDecoded
 func GetDecoded(ID []byte, data unsafe.Pointer, length int) (ok bool) {
 	goUUID, _ := uuid.FromBytes(ID)
@@ -187,46 +176,23 @@ func GetDecoded(ID []byte, data unsafe.Pointer, length int) (ok bool) {
 		return false
 	}
 
-	// if sampleIndex >= len(dec.Out) || valueIndex >= len(dec.Out[sampleIndex].Int32s) {
-	// 	return false
-	// }
+	// convert array of DatasetWithQuality "owned" by C code into Go slice
+	datasetSlice := (*[1 << 30]C.struct_DatasetWithQuality)(unsafe.Pointer(data))[:length:length]
 
-	// TODO try pre-allocating a structure in C, then create glue function to copy data from Go
-	//      or use similar approach to Decode(), but send slice of DatasetWithQuality "owned" by C code
+	for s := range datasetSlice {
+		datasetSlice[s].T = C.uint64_t(dec.Out[s].T)
 
-	// dataSlice := unsafe.Slice((*C.struct_DatasetWithQuality)(data), length)
-	dataSlice := (*[1 << 30]C.struct_DatasetWithQuality)(unsafe.Pointer(data))[:length:length]
-
-	for s := range dataSlice {
-		dataSlice[s].T = C.uint64_t(dec.Out[s].T)
-
-		slice := (*[1 << 30]int32)(unsafe.Pointer(dataSlice[s].Int32s))[:dec.Int32Count:dec.Int32Count]
-		sliceQ := (*[1 << 30]uint32)(unsafe.Pointer(dataSlice[s].Q))[:dec.Int32Count:dec.Int32Count]
+		// similar to above, convert C arrays into Go slices
+		Int32Slice := (*[1 << 30]int32)(unsafe.Pointer(datasetSlice[s].Int32s))[:dec.Int32Count:dec.Int32Count]
+		QSlice := (*[1 << 30]uint32)(unsafe.Pointer(datasetSlice[s].Q))[:dec.Int32Count:dec.Int32Count]
 
 		for i := 0; i < dec.Int32Count; i++ {
-			slice[i] = dec.Out[s].Int32s[i]
-			sliceQ[i] = dec.Out[s].Q[i]
-			// dataSlice[s].Int32s[i] = dec.Out[s].Int32s[i]
-			// unsafe.Slice((*int32)(dataSlice[s].Int32s), dec.Int32Count)[i] = dec.Out[s].Int32s[i]
-			// unsafe.Slice((*uint32)(dataSlice[s].Q), dec.Int32Count)[i] = dec.Out[s].Q[i]
+			Int32Slice[i] = dec.Out[s].Int32s[i]
+			QSlice[i] = dec.Out[s].Q[i]
 		}
-
-		// if s == 27 {
-		// 	fmt.Println(slice)
-		// }
 	}
 
-	return true //, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s[valueIndex], dec.Out[sampleIndex].Q[valueIndex]
-
-	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
-
-	// return &C.struct_DatasetWithQuality{
-	// 	T:      C.uint64_t(sampleIndex),
-	// 	Int32s: (*_Ctype_int32_t)(C.CBytes(dec.Out[sampleIndex].Int32s)),
-	// 	// T:      _Ctype_ulonglong(dec.Out[index].T),
-	// 	// Int32s: (*_Ctype_int)(&dec.Out[index].Int32s[0]),
-	// 	// Q:      (*_Ctype_uint)(&dec.Out[index].Q[0]),
-	// }
+	return true
 }
 
 //export GetDecodedIndexAll

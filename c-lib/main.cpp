@@ -6,7 +6,7 @@
 // #include <time.h>
 #include "c-main.h"
 
-// note that C++ is used only for accurate timing using std::chrono
+// note that C++ is used only for accurate timing using std::chrono, so the code should be suitable for C and C++
 
 // useful references:
 // https://github.com/vladimirvivien/go-cshared-examples
@@ -131,12 +131,9 @@ int main() {
             endDecode = std::chrono::high_resolution_clock::now();
 
             if (decoded == true) {
-                struct GetDecodedIndex_return sample_out;
-
-                // struct GetDecodedIndexAll_return sample_out_all;
+                // struct GetDecodedIndex_return sample_out;
 
                 bool ok = GetDecoded(ID2, samplesOut, samplesPerMessage);
-                printf("decoder: %d\n", ok);
 
                 for (int s = 0; s < samplesPerMessage; s++) {
                     for (int i = 0; i < int32Count; i++) {
@@ -144,9 +141,8 @@ int main() {
                         // if (sample_out.r0 == 0 || sample_out.r1 != samples[s].T || sample_out.r2 != samples[s].Int32s[i] || sample_out.r3 != samples[s].Q[i]) {
                         //     printf("error: decode mismatch: %d, %d\n", s, i);
                         // }
-                        // printf("%d\n", sample_out.r2);
 
-                        if (samplesOut[s].Int32s[i] != samples[s].Int32s[i]) {
+                        if (samplesOut[s].T != samples[s].T || samplesOut[s].Int32s[i] != samples[s].Int32s[i] || samplesOut[s].Q[i] != samples[s].Q[i]) {
                             printf("error: decode mismatch: %d, %d (%d, %d)\n", s, i, samplesOut[s].Int32s[i], samples[s].Int32s[i]);
                         }
                     }

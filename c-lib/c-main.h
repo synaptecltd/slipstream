@@ -105,6 +105,9 @@ struct GetDecodedIndex_return {
 	GoUint32 r3; /* Q */
 };
 extern __declspec(dllexport) struct GetDecodedIndex_return GetDecodedIndex(GoSlice ID, GoInt sampleIndex, GoInt valueIndex);
+
+// GetDecoded maps decoded Slipstream data into a DatasetWithQuality struct allocated in C code
+//
 extern __declspec(dllexport) GoUint8 GetDecoded(GoSlice ID, void* data, GoInt length);
 
 /* Return type for GetDecodedIndexAll */

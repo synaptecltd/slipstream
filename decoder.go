@@ -19,8 +19,8 @@ import (
 // Decoder defines a stream protocol instance for decoding
 type Decoder struct {
 	ID                  uuid.UUID
-	samplingRate        int
-	samplesPerMessage   int
+	SamplingRate        int
+	SamplesPerMessage   int
 	encodedSamples      int
 	Int32Count          int
 	gzBuf               *bytes.Buffer
@@ -40,8 +40,8 @@ func NewDecoder(ID uuid.UUID, int32Count int, samplingRate int, samplesPerMessag
 	d := &Decoder{
 		ID:                ID,
 		Int32Count:        int32Count,
-		samplingRate:      samplingRate,
-		samplesPerMessage: samplesPerMessage,
+		SamplingRate:      samplingRate,
+		SamplesPerMessage: samplesPerMessage,
 		Out:               make([]DatasetWithQuality, samplesPerMessage),
 	}
 
@@ -115,7 +115,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	s.encodedSamples = int(valSigned)
 	length += lenB
 
-	actualSamples := min(s.encodedSamples, s.samplesPerMessage)
+	actualSamples := min(s.encodedSamples, s.SamplesPerMessage)
 
 	// TODO inspect performance here
 	s.gzBuf.Reset()
