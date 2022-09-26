@@ -95,6 +95,13 @@ struct Encode_return {
 	void* r1; /* data */
 };
 extern __declspec(dllexport) struct Encode_return Encode(GoSlice ID, GoUint64 T, GoSlice Int32s, GoSlice Q);
+
+/* Return type for EncodeAll */
+struct EncodeAll_return {
+	GoInt r0; /* lengthOut */
+	void* r1; /* dataOut */
+};
+extern __declspec(dllexport) struct EncodeAll_return EncodeAll(GoSlice ID, void* data, GoInt length);
 extern __declspec(dllexport) GoUint8 Decode(GoSlice ID, void* data, GoInt length);
 
 /* Return type for GetDecodedIndex */

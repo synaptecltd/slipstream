@@ -1,17 +1,12 @@
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <chrono>
+#include <cstring>
 // #include <time.h>
 #include "c-main.h"
-
-// note that C++ is used only for accurate timing using std::chrono, so the code should be suitable for C and C++
-
-// useful references:
-// https://github.com/vladimirvivien/go-cshared-examples
-// https://gist.github.com/helinwang/2c7bd2867ea5110f70e6431a7c80cd9b
-// https://stackoverflow.com/questions/43646589/does-passing-a-slice-to-golang-from-c-do-a-memory-copy/43646947#43646947
 
 #define INTEGER_SCALING_I   1000.0
 #define INTEGER_SCALING_V   100.0
@@ -38,18 +33,78 @@ int32_t getSample(double t, bool isVoltage, double phase) {
     return (int32_t) (scaling * (mag * sin(2*PI*FNOM*t + phase) + random(-NOISE_MAX, NOISE_MAX)));
 }
 
+struct DatasetWithQuality *allocateSamples(int int32Count, int samplesPerMessage) {
+    struct DatasetWithQuality *samples;
+    samples = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
+    for (int s = 0; s < samplesPerMessage; s++) {
+        samples[s].T = s;
+        samples[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
+        samples[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
+    }
+    return samples;
+}
+
+void freeSamples(struct DatasetWithQuality *samples, int samplesPerMessage) {
+    for (int s = 0; s < samplesPerMessage; s++) {
+        free(samples[s].Int32s);
+        free(samples[s].Q);
+    }
+    free(samples);
+}
+
+typedef struct SlipstreamTest {
+    // encoder/decoder settings
+    int int32Count;
+    int samplingRate;
+    int samplesPerMessage;
+
+    // Slipstream UUID
+    GoUint8 ID_bytes[16];
+    GoSlice ID;
+
+    // vars for storing encoding/decoding status
+    int encodedSamples = 0;
+    int encodedLength = 0;
+    bool decoded = false;
+
+    // storage for data samples, for input to encoder and output of decoder
+    struct DatasetWithQuality *samples;
+    struct DatasetWithQuality *samplesOut;
+
+    // define timers
+    std::chrono::high_resolution_clock::time_point start, endEncode, endAll, startDecode, endDecode, endProcessedDecodeOutput;
+} SlipstreamTest;
+
+void initialiseTestParams(SlipstreamTest *test, GoUint8 ID_bytes[16]) {
+    test->int32Count = 8;
+    test->samplingRate = 4000;
+    test->samplesPerMessage = 4000;
+
+    memcpy(test->ID_bytes, ID_bytes, 16*sizeof(GoUint8));
+    GoSlice ID = {test->ID_bytes, 16, 16};
+
+    test->samples = allocateSamples(test->int32Count, test->samplesPerMessage);
+    test->samplesOut = allocateSamples(test->int32Count, test->samplesPerMessage);
+}
+
 int main() {
     printf("using Go lib from C/C++\n");
 
+    // seed random number for measurement noise
     srand(0);
 
-    // initialise some UUIDs as Go slides of 16 bytes
+    SlipstreamTest batchEncodeDecode = {0};
     GoUint8 ID_bytes[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    GoSlice ID = {ID_bytes, 16, 16};
+    initialiseTestParams(&batchEncodeDecode, ID_bytes);
+
+    SlipstreamTest iterativeEncode = {0};
     GoUint8 ID2_bytes[16] = {2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5};
+    initialiseTestParams(&batchEncodeDecode, ID2_bytes);
+
+    // initialise some UUIDs as Go slides of 16 bytes
+    // GoUint8 ID_bytes[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    GoSlice ID = {ID_bytes, 16, 16};
     GoSlice ID2 = {ID2_bytes, 16, 16};
-    GoUint8 ID3_bytes[16] = {3, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    GoSlice ID3 = {ID3_bytes, 16, 16};
 
     // encoder/decoder settings
     const int int32Count = 8;
@@ -57,13 +112,8 @@ int main() {
     const int samplesPerMessage = 4000;
 
     // pre-calculate all data samples
-    struct DatasetWithQuality *samples;
-    samples = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
+    struct DatasetWithQuality *samples = allocateSamples(int32Count, samplesPerMessage);;
     for (int s = 0; s < samplesPerMessage; s++) {
-        samples[s].T = s;
-        samples[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
-        samples[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
-
         // emulate three-phase current and voltage waveform samples
         double t = (double) s / (double) samplingRate;
         samples[s].Int32s[0] = getSample(t, false, 0.0);
@@ -83,28 +133,56 @@ int main() {
     }
 
     // pre-allocate storage for decoder output
-    struct DatasetWithQuality *samplesOut;
-    samplesOut = (struct DatasetWithQuality*) malloc(samplesPerMessage * sizeof(struct DatasetWithQuality));
-    for (int s = 0; s < samplesPerMessage; s++) {
-        samplesOut[s].T = s;
-        samplesOut[s].Int32s = (int32_t*) malloc(int32Count * sizeof(int32_t));
-        samplesOut[s].Q = (uint32_t*) malloc(int32Count * sizeof(uint32_t));
-    }
+    struct DatasetWithQuality *samplesOut = allocateSamples(int32Count, samplesPerMessage);
 
     // create encoders
     NewEncoder(ID, int32Count, samplingRate, samplesPerMessage);
     NewEncoder(ID2, int32Count, samplingRate, samplesPerMessage);
 
     // create decoders
+    NewDecoder(ID, int32Count, samplingRate, samplesPerMessage);
     NewDecoder(ID2, int32Count, samplingRate, samplesPerMessage);
+
+    // vars for storing encoding/decoding status
+    int encodedSamples, encodedLength = 0;
+    bool decoded = false;
 
     // define timers
     std::chrono::high_resolution_clock::time_point start, endEncode, endAll, startDecode, endDecode, endProcessedDecodeOutput;
     start = std::chrono::high_resolution_clock::now();
 
-    int encodedSamples, encodedLength = 0;
-    bool decoded = false;
+    // perform encoding of all samples
+    struct EncodeAll_return retAll = EncodeAll(ID2, samples, samplesPerMessage);
+    endEncode = std::chrono::high_resolution_clock::now();
 
+    // check if encoded data is available, then attempt decoding of data bytes
+    if (retAll.r0 > 0) {
+        startDecode = std::chrono::high_resolution_clock::now();
+        decoded = Decode(ID2, retAll.r1, retAll.r0);
+        endDecode = std::chrono::high_resolution_clock::now();
+    }
+
+    if (decoded == true) {
+        bool ok = GetDecoded(ID2, samplesOut, samplesPerMessage);
+
+        for (int s = 0; s < samplesPerMessage; s++) {
+            for (int i = 0; i < int32Count; i++) {
+                // sample_out = GetDecodedIndex(ID2, s, i);
+                // if (sample_out.r0 == 0 || sample_out.r1 != samples[s].T || sample_out.r2 != samples[s].Int32s[i] || sample_out.r3 != samples[s].Q[i]) {
+                //     printf("error: decode mismatch: %d, %d\n", s, i);
+                // }
+
+                if (samplesOut[s].T != samples[s].T || samplesOut[s].Int32s[i] != samples[s].Int32s[i] || samplesOut[s].Q[i] != samples[s].Q[i]) {
+                    printf("error: decode mismatch: %d, %d (%d, %d)\n", s, i, samplesOut[s].Int32s[i], samples[s].Int32s[i]);
+                }
+            }
+        }
+    }
+    endProcessedDecodeOutput = std::chrono::high_resolution_clock::now();
+
+    endAll = std::chrono::high_resolution_clock::now();
+
+    // performing encoding sample by sample. decoding is attempted once a full message is created.
     for (int s = 0; s < samplesPerMessage; s++) {
         // convert a single data sample to GoSlice
         GoSlice Int32s;
@@ -121,18 +199,16 @@ int main() {
 
         // check for completed message
         if (ret.r0 > 0) {
-            endEncode = std::chrono::high_resolution_clock::now();
+            // endEncode = std::chrono::high_resolution_clock::now();
 
             encodedSamples = s;
             encodedLength = ret.r0;
 
-            startDecode = std::chrono::high_resolution_clock::now();
+            // startDecode = std::chrono::high_resolution_clock::now();
             decoded = Decode(ID2, ret.r1, ret.r0);
-            endDecode = std::chrono::high_resolution_clock::now();
+            // endDecode = std::chrono::high_resolution_clock::now();
 
             if (decoded == true) {
-                // struct GetDecodedIndex_return sample_out;
-
                 bool ok = GetDecoded(ID2, samplesOut, samplesPerMessage);
 
                 for (int s = 0; s < samplesPerMessage; s++) {
@@ -148,15 +224,13 @@ int main() {
                     }
                 }
             }
-            endProcessedDecodeOutput = std::chrono::high_resolution_clock::now();
+            // endProcessedDecodeOutput = std::chrono::high_resolution_clock::now();
             
             // need to free byte arrays allocated
             free(ret.r1);
             break;
         }
     }
-
-    endAll = std::chrono::high_resolution_clock::now();
     
     // overall results
     printf("samples encoded: %d, length: %d bytes\n", encodedSamples + 1, encodedLength);
@@ -172,9 +246,13 @@ int main() {
     std::chrono::duration<float> encodeDuration = endEncode - start;
     std::chrono::duration<float> decodeDuration = endDecode - startDecode;
     std::chrono::duration<float> decodeWithProcessingDuration = endProcessedDecodeOutput - startDecode;
-    printf("total duration:\t\t%.1f ms\n", totalDuration.count() * 1000);
-    printf("encode:\t\t\t%.1f ms\n", encodeDuration.count() * 1000);
-    printf("decode:\t\t\t%.1f ms\n", decodeDuration.count() * 1000);
-    printf("decode with processing:\t%.1f ms\n", decodeWithProcessingDuration.count() * 1000);
+    printf("total duration:\t\t%.2f ms\n", totalDuration.count() * 1000);
+    printf("encode:\t\t\t%.2f ms\n", encodeDuration.count() * 1000);
+    printf("decode:\t\t\t%.2f ms\n", decodeDuration.count() * 1000);
+    printf("decode with processing:\t%.2f ms\n", decodeWithProcessingDuration.count() * 1000);
+
+    // free allocated memory
+    freeSamples(samples,  samplesPerMessage);
+    freeSamples(samplesOut,  samplesPerMessage);
 }
 

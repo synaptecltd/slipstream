@@ -114,10 +114,56 @@ func Encode(ID []byte, T uint64, Int32s []int32, Q []uint32) (length int, data u
 	}
 
 	// encode this data sample
-	buf, numBytes, _ := enc.Encode(goData)
+	buf, numBytes, err := enc.Encode(goData)
+	if err != nil {
+		return 0, nil
+	}
 
 	// need to use CBytes() utility function to copy bytes to C, data must be free'd later
 	return numBytes, C.CBytes(buf)
+}
+
+//export EncodeAll
+func EncodeAll(ID []byte, data unsafe.Pointer, length int) (lengthOut int, dataOut unsafe.Pointer) {
+	goUUID, _ := uuid.FromBytes(ID)
+	enc := findEncByID(goUUID)
+	if enc == nil {
+		fmt.Println("not found")
+		return 0, nil
+	}
+
+	// convert array of DatasetWithQuality "owned" by C code into Go slice
+	datasetSlice := (*[1 << 30]C.struct_DatasetWithQuality)(unsafe.Pointer(data))[:length:length]
+
+	for s := range datasetSlice {
+		// similar to above, convert C arrays into Go slices
+		Int32Slice := (*[1 << 30]int32)(unsafe.Pointer(datasetSlice[s].Int32s))[:enc.Int32Count:enc.Int32Count]
+		QSlice := (*[1 << 30]uint32)(unsafe.Pointer(datasetSlice[s].Q))[:enc.Int32Count:enc.Int32Count]
+
+		// assign data into Go struct
+		goData := &slipstream.DatasetWithQuality{
+			T:      uint64(datasetSlice[s].T),
+			Int32s: Int32Slice,
+			Q:      QSlice,
+		}
+
+		// encode this data sample
+		buf, numBytes, err := enc.Encode(goData)
+		if err != nil {
+			return 0, nil
+		}
+
+		if numBytes > 0 {
+			return numBytes, C.CBytes(buf)
+		}
+		// for i := 0; i < dec.Int32Count; i++ {
+		// 	Int32Slice[i] = dec.Out[s].Int32s[i]
+		// 	QSlice[i] = dec.Out[s].Q[i]
+		// }
+	}
+
+	// need to use CBytes() utility function to copy bytes to C, data must be free'd later
+	return 0, nil
 }
 
 //export Decode
