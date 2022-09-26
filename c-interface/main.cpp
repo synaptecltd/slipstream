@@ -136,7 +136,7 @@ void initialiseTestParams(SlipstreamTest *test, GoUint8 ID_bytes[16]) {
 }
 
 /**
- * validateData checks the the every sample of the decoded output matches the original data.
+ * validateData checks that the every sample of the decoded output matches the original data.
  */
 void validateData(SlipstreamTest *test) {
     for (int s = 0; s < test->samplesPerMessage; s++) {
