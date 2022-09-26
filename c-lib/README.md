@@ -17,6 +17,8 @@ This directory contains an example of Go and C/C++ files which could be used to 
 
 Run `build.sh` to test the interface.
 
+There is some necessary copying of data between the Go and C environments, due to the limitations of the Go interface with C. However, although this is somewhat inefficient, it avoids creating and maintaining a complete rewrite of Slipstream in C, so is a good trade-off.
+
 ## Further info
 
 The following links provide useful information about this process:
