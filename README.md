@@ -158,7 +158,7 @@ go test -v
 
 ## C/C++ interface example
 
-The `c-interface/` directory shows how this Go library can be embedded within a C/C++ program. This allows C/C++ code to use Slipstream without requiring a complete rewrite of the Go code in C.
+The `c-interface/` directory shows how this Go library can be embedded within a C/C++ program. This allows C/C++ code to use Slipstream without requiring a complete rewrite of the Go code in C. The README file in that directory provides further details.
 
 ## References
 
