@@ -6,7 +6,7 @@ The Go compiler has the interesting ability to target embedding Go code within a
 
 This is achieved by adding `-buildmode=c-shared` to the `go build` command. This generates a C header file and an object file which can be easily linked within C/C++ code.
 
-These are the main caveats with embedding Go programs within C/++:
+These are the main caveats with embedding Go programs within C/C++:
 - The Go API should ideally involve only basic Go primitive types.
 - You cannot easily exchange pointers, or any type which relies on pointers such as slices or structs, from Go to C code. Generally, it is easier for memory to be allocated in C code, and then accessed from Go.
 - There are convenience functions such as `C.CBytes()` and `C.CString()` but these must be used with care to avoid leaking memory.
@@ -14,6 +14,8 @@ These are the main caveats with embedding Go programs within C/++:
 ## Example
 
 This directory contains an example of Go and C/C++ files which could be used to implement Slipstream within a C/C++ environment.
+
+Run `build.sh` to test the interface.
 
 ## Further info
 
