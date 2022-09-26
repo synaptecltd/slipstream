@@ -19,7 +19,7 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 /* Start of preamble from import "C" comments.  */
 
 
-#line 3 "c-main.go"
+#line 3 "c-interface.go"
 
 #include <stdint.h>
 

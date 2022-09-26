@@ -1,12 +1,10 @@
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <chrono>
 #include <cstring>
-// #include <time.h>
-#include "c-main.h"
+#include "c-interface.h"
 
 #define INTEGER_SCALING_I   1000.0
 #define INTEGER_SCALING_V   100.0
@@ -157,9 +155,7 @@ int main() {
     // seed random number for measurement noise
     srand(0);
 
-    // TODO check timings are consistent
-
-    printf("\n*** perform encoding of all samples ***\n\n");
+    printf("\n*** 1. perform encoding of all samples ***\n\n");
     SlipstreamTest batchEncode = {0};
     GoUint8 ID_bytes[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     initialiseTestParams(&batchEncode, ID_bytes);
@@ -201,7 +197,7 @@ int main() {
     // free allocated memory
     freeSlipstreamTest(&batchEncode);
 
-    printf("\n*** perform iterative encoding of samples ***\n\n");
+    printf("\n*** 2. perform iterative encoding of samples ***\n\n");
     SlipstreamTest iterativeEncode = {0};
     GoUint8 ID2_bytes[16] = {2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5};
     initialiseTestParams(&iterativeEncode, ID2_bytes);
@@ -222,11 +218,10 @@ int main() {
 
         // attempt encoding
         struct Encode_return ret = Encode(iterativeEncode.ID, 0, Int32s, Q);
-        iterativeEncode.endEncode = std::chrono::high_resolution_clock::now();
 
         // check for completed message
         if (ret.r0 > 0) {
-            // endEncode = std::chrono::high_resolution_clock::now();
+            iterativeEncode.endEncode = std::chrono::high_resolution_clock::now();
 
             iterativeEncode.encodedSamples = s + 1;
             iterativeEncode.encodedLength = ret.r0;
