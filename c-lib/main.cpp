@@ -140,6 +140,8 @@ int main() {
     // seed random number for measurement noise
     srand(0);
 
+    // TODO check all C.CBytes(buf) usages are free'd
+
     printf("\n*** perform encoding of all samples ***\n\n");
     SlipstreamTest batchEncode = {0};
     GoUint8 ID_bytes[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};

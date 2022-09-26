@@ -38,18 +38,6 @@ func NewEncoder(ID []byte, int32Count int, samplingRate int, samplesPerMessage i
 	enc := slipstream.NewEncoder(goUUID, int32Count, samplingRate, samplesPerMessage)
 
 	encList.PushBack(enc)
-
-	// go func() {
-	// 	time.Sleep(1 * time.Second)
-	// }()
-
-	// time.Sleep(2 * time.Second)
-
-	// TODO return pool index/ID rather than C copy of object
-	/*ret := &C.struct_Encoder{}
-	ret.Int32Count = C.int(enc.Int32Count)
-
-	return ret*/
 }
 
 //export NewDecoder
@@ -97,6 +85,8 @@ func RemoveEncoder(ID []byte) {
 	// encList.Remove(enc)
 }
 
+// Encode performs encoding of a single sample of data. If this completes a message, the encoded message data is returned.
+//
 //export Encode
 func Encode(ID []byte, T uint64, Int32s []int32, Q []uint32) (length int, data unsafe.Pointer) {
 	goUUID, _ := uuid.FromBytes(ID)
@@ -123,6 +113,8 @@ func Encode(ID []byte, T uint64, Int32s []int32, Q []uint32) (length int, data u
 	return numBytes, C.CBytes(buf)
 }
 
+// EncodeAll performs batch encoding of an entire message. The encoded message data is returned.
+//
 //export EncodeAll
 func EncodeAll(ID []byte, data unsafe.Pointer, length int) (lengthOut int, dataOut unsafe.Pointer) {
 	goUUID, _ := uuid.FromBytes(ID)
@@ -156,16 +148,13 @@ func EncodeAll(ID []byte, data unsafe.Pointer, length int) (lengthOut int, dataO
 		if numBytes > 0 {
 			return numBytes, C.CBytes(buf)
 		}
-		// for i := 0; i < dec.Int32Count; i++ {
-		// 	Int32Slice[i] = dec.Out[s].Int32s[i]
-		// 	QSlice[i] = dec.Out[s].Q[i]
-		// }
 	}
 
-	// need to use CBytes() utility function to copy bytes to C, data must be free'd later
 	return 0, nil
 }
 
+// Decode performs Slipstream decoding from raw byte data. Results are stored in the Go struct, and `GetDecoded()` or `GetDecodedIndex()` should be used to access results from C.
+//
 //export Decode
 func Decode(ID []byte, data unsafe.Pointer, length int) bool {
 	goUUID, _ := uuid.FromBytes(ID)
@@ -175,26 +164,17 @@ func Decode(ID []byte, data unsafe.Pointer, length int) bool {
 		return false
 	}
 
-	// assign data into Go struct
-	// goData := &slipstream.DatasetWithQuality{
-	// 	T:      T,
-	// 	Int32s: Int32s,
-	// 	Q:      Q,
-	// }
-
 	// encode this data sample
 	err := dec.DecodeToBuffer(unsafe.Slice((*byte)(data), length), length)
 	if err != nil {
 		return false
 	}
 
-	// return dec.Out
 	return true
-
-	// need to use CBytes() utility function to copy bytes to C, data must be free'd later
-	// return numBytes, C.CBytes(buf)
 }
 
+// GetDecodedIndex returns a single data point (with timestamp and quality). This is very inefficient because it needs to be called repeatedly for each encoded variable and time-step.
+//
 //export GetDecodedIndex
 func GetDecodedIndex(ID []byte, sampleIndex int, valueIndex int) (ok bool, T uint64, Value int32, Q uint32) {
 	goUUID, _ := uuid.FromBytes(ID)
@@ -211,7 +191,7 @@ func GetDecodedIndex(ID []byte, sampleIndex int, valueIndex int) (ok bool, T uin
 	return true, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s[valueIndex], dec.Out[sampleIndex].Q[valueIndex]
 }
 
-// GetDecoded maps decoded Slipstream data into a DatasetWithQuality struct allocated in C code
+// GetDecoded maps decoded Slipstream data into a slice of `DatasetWithQuality struct`, which is allocated in C code. This provides an efficient way of copying all decoded data from a message from Go to C.
 //
 //export GetDecoded
 func GetDecoded(ID []byte, data unsafe.Pointer, length int) (ok bool) {
@@ -239,34 +219,6 @@ func GetDecoded(ID []byte, data unsafe.Pointer, length int) (ok bool) {
 	}
 
 	return true
-}
-
-//export GetDecodedIndexAll
-func GetDecodedIndexAll(ID []byte, sampleIndex int) (ok bool, T uint64, Value []int32, Q []uint32) {
-	goUUID, _ := uuid.FromBytes(ID)
-	dec := findDecByID(goUUID)
-	if dec == nil {
-		fmt.Println("not found")
-		return false, 0, nil, nil
-	}
-
-	if sampleIndex >= len(dec.Out) {
-		return false, 0, nil, nil
-	}
-
-	// TODO need to convert slice to C array (*uint32_t)
-
-	return true, dec.Out[sampleIndex].T, dec.Out[sampleIndex].Int32s, dec.Out[sampleIndex].Q
-
-	// return (*C.struct_DatasetWithQuality)(unsafe.Pointer(&dec.Out[sampleIndex]))
-
-	// return &C.struct_DatasetWithQuality{
-	// 	T:      C.uint64_t(sampleIndex),
-	// 	Int32s: (*_Ctype_int32_t)(C.CBytes(dec.Out[sampleIndex].Int32s)),
-	// 	// T:      _Ctype_ulonglong(dec.Out[index].T),
-	// 	// Int32s: (*_Ctype_int)(&dec.Out[index].Int32s[0]),
-	// 	// Q:      (*_Ctype_uint)(&dec.Out[index].Q[0]),
-	// }
 }
 
 func main() {}
