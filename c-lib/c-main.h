@@ -88,12 +88,16 @@ extern "C" {
 extern __declspec(dllexport) void NewEncoder(GoSlice ID, GoInt int32Count, GoInt samplingRate, GoInt samplesPerMessage);
 extern __declspec(dllexport) void NewDecoder(GoSlice ID, GoInt int32Count, GoInt samplingRate, GoInt samplesPerMessage);
 extern __declspec(dllexport) void RemoveEncoder(GoSlice ID);
+extern __declspec(dllexport) void RemoveDecoder(GoSlice ID);
 
 /* Return type for Encode */
 struct Encode_return {
 	GoInt r0; /* length */
 	void* r1; /* data */
 };
+
+// Encode performs encoding of a single sample of data. If this completes a message, the encoded message data is returned.
+//
 extern __declspec(dllexport) struct Encode_return Encode(GoSlice ID, GoUint64 T, GoSlice Int32s, GoSlice Q);
 
 /* Return type for EncodeAll */
@@ -101,7 +105,13 @@ struct EncodeAll_return {
 	GoInt r0; /* lengthOut */
 	void* r1; /* dataOut */
 };
+
+// EncodeAll performs batch encoding of an entire message. The encoded message data is returned.
+//
 extern __declspec(dllexport) struct EncodeAll_return EncodeAll(GoSlice ID, void* data, GoInt length);
+
+// Decode performs Slipstream decoding from raw byte data. Results are stored in the Go struct, and `GetDecoded()` or `GetDecodedIndex()` should be used to access results from C.
+//
 extern __declspec(dllexport) GoUint8 Decode(GoSlice ID, void* data, GoInt length);
 
 /* Return type for GetDecodedIndex */
@@ -111,20 +121,14 @@ struct GetDecodedIndex_return {
 	GoInt32 r2; /* Value */
 	GoUint32 r3; /* Q */
 };
+
+// GetDecodedIndex returns a single data point (with timestamp and quality). This is very inefficient because it needs to be called repeatedly for each encoded variable and time-step.
+//
 extern __declspec(dllexport) struct GetDecodedIndex_return GetDecodedIndex(GoSlice ID, GoInt sampleIndex, GoInt valueIndex);
 
-// GetDecoded maps decoded Slipstream data into a DatasetWithQuality struct allocated in C code
+// GetDecoded maps decoded Slipstream data into a slice of `DatasetWithQuality struct`, which is allocated in C code. This provides an efficient way of copying all decoded data from a message from Go to C.
 //
 extern __declspec(dllexport) GoUint8 GetDecoded(GoSlice ID, void* data, GoInt length);
-
-/* Return type for GetDecodedIndexAll */
-struct GetDecodedIndexAll_return {
-	GoUint8 r0; /* ok */
-	GoUint64 r1; /* T */
-	GoSlice r2; /* Value */
-	GoSlice r3; /* Q */
-};
-extern __declspec(dllexport) struct GetDecodedIndexAll_return GetDecodedIndexAll(GoSlice ID, GoInt sampleIndex);
 
 #ifdef __cplusplus
 }

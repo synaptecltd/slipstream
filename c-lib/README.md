@@ -35,3 +35,33 @@ The following links provide useful information about this process:
 - https://github.com/vladimirvivien/go-cshared-examples
 - https://gist.github.com/helinwang/2c7bd2867ea5110f70e6431a7c80cd9b
 - https://stackoverflow.com/questions/43646589/does-passing-a-slice-to-golang-from-c-do-a-memory-copy/43646947#43646947
+
+## Example code output
+
+After running `build.sh`, the output similar to the following should be printed to the shell:
+
+```bash
+using Go lib from C/C++
+
+*** perform encoding of all samples ***
+
+samples encoded: 4000, length: 38498 bytes
+compression efficiency: 15.04% of original size
+decoding successful
+
+total duration:         1.55 ms
+encode:                 0.52 ms
+decode:                 0.52 ms
+decode with processing: 1.03 ms
+
+*** perform iterative encoding of samples ***
+
+samples encoded: 4000, length: 38498 bytes
+compression efficiency: 15.04% of original size
+decoding successful
+
+total duration:         6.38 ms
+encode:                 5.85 ms
+decode:                 0.53 ms
+decode with processing: 0.53 ms
+```

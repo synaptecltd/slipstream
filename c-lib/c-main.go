@@ -85,6 +85,19 @@ func RemoveEncoder(ID []byte) {
 	// encList.Remove(enc)
 }
 
+//export RemoveDecoder
+func RemoveDecoder(ID []byte) {
+	goUUID, _ := uuid.FromBytes(ID)
+	dec := findDecByID(goUUID)
+	if dec == nil {
+		return
+	}
+
+	// TODO
+
+	// encList.Remove(enc)
+}
+
 // Encode performs encoding of a single sample of data. If this completes a message, the encoded message data is returned.
 //
 //export Encode
@@ -146,6 +159,7 @@ func EncodeAll(ID []byte, data unsafe.Pointer, length int) (lengthOut int, dataO
 		}
 
 		if numBytes > 0 {
+			// need to use CBytes() utility function to copy bytes to C, data must be free'd later
 			return numBytes, C.CBytes(buf)
 		}
 	}
