@@ -156,6 +156,10 @@ You can run the test suite locally with:
 go test -v
 ```
 
+## C/C++ interface example
+
+The `c-interface/` directory shows how this Go library can be embedded within a C/C++ program. This allows C/C++ code to use Slipstream without requiring a complete rewrite of the Go code in C. The README file in that directory provides further details.
+
 ## References
 
 [^1]: Blair, S. M., Roscoe, A. J., & Irvine, J. (2016). Real-time compression of IEC 61869-9 sampled value data. 2016 IEEE International Workshop on Applied Measurements for Power Systems (AMPS), 1–6. https://doi.org/10.1109/AMPS.2016.7602854 https://strathprints.strath.ac.uk/57710/1/Blair_etal_AMPS2016_Real_time_compression_of_IEC_61869_9_sampled_value_data.pdf
