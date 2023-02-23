@@ -520,12 +520,6 @@ func TestEncodeDecodeCSVData(t *testing.T) {
 		}
 		meanBytesPerMessage := float64(encodeStats.totalBytes) / float64(encodeStats.messages) // includes header overhead
 		percent := 100 * float64(meanBytesPerMessage) / float64(theoryBytesPerMessage)
-		// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
-
-		// fmt.Println("samples:", encodeStats.samples, "messages:", encodeStats.messages, "mean bytes per message:", meanBytesPerMessage, "theory bytes per message:", theoryBytesPerMessage, "percent:", percent, "%")
-		// fmt.Println("total bytes:", encodeStats.totalBytes, "total header bytes:", encodeStats.totalHeaderBytes, "total bytes without header:", encodeStats.totalBytes-encodeStats.totalHeaderBytes)
-
-		// fmt.Printf("%.2f%%, %.2f bits per sample\n", percent, encodeStats.bitsPerSample)
 
 		tab.AppendRow([]interface{}{
 			encodeStats.samples,
