@@ -2,8 +2,10 @@ package slipstream_test
 
 import (
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"testing"
@@ -288,6 +290,7 @@ func createInputDataCSV(filename string) ([]slipstream.DatasetWithQuality, int) 
 		panic("not enough data")
 	}
 
+	// infer sampling rate from first two samples, assuming integer value in Hz
 	samplingRate := int(1.0 / (samples[1].Time - samples[0].Time))
 	countOfVariables := 8
 
@@ -470,33 +473,73 @@ func encodeAndDecode(t *testing.T, data *[]slipstream.DatasetWithQuality, enc *s
 	return &encodeStats, nil
 }
 
+func find(root, ext string) []string {
+	var a []string
+	filepath.WalkDir(root, func(s string, d fs.DirEntry, e error) error {
+		if e != nil {
+			return e
+		}
+		if filepath.Ext(d.Name()) == ext {
+			a = append(a, s)
+		}
+		return nil
+	})
+	return a
+}
+
 func TestEncodeDecodeCSVData(t *testing.T) {
-	data, samplingRate := createInputDataCSV("assets/21873.csv")
-	countOfVariables := 8
-	samplesPerMessage := samplingRate // len(data)
-	earlyEncodingStop := false
+	// testing with selected three-phase voltage and current data records from: https://pqmon.epri.com
 
-	// create encoder and decoder
-	stream := slipstream.NewEncoder(ID, countOfVariables, samplingRate, samplesPerMessage)
-	streamDecoder := slipstream.NewDecoder(ID, countOfVariables, samplingRate, samplesPerMessage)
+	// find all CSV files in assets folder
+	csvFiles := find("assets", ".csv")
 
-	// encode the data
-	// when each message is complete, decode
-	encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, countOfVariables, samplesPerMessage, earlyEncodingStop)
+	// prepare table for presenting results
+	tab := table.NewWriter()
+	tab.SetOutputMirror(os.Stdout)
+	tab.SetStyle(table.StyleLight)
+	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "size\n(bytes)", "size\n(%)", "bits per\nsample"})
 
-	theoryBytesPerMessage := countOfVariables * samplesPerMessage * 16
+	for _, csvFile := range csvFiles {
+		data, samplingRate := createInputDataCSV(csvFile)
+		countOfVariables := 8
+		samplesPerMessage := samplingRate
+		earlyEncodingStop := false
 
-	if earlyEncodingStop {
-		theoryBytesPerMessage = countOfVariables * encodeStats.samples * 16
+		// create encoder and decoder
+		stream := slipstream.NewEncoder(ID, countOfVariables, samplingRate, samplesPerMessage)
+		streamDecoder := slipstream.NewDecoder(ID, countOfVariables, samplingRate, samplesPerMessage)
+
+		// encode the data
+		// when each message is complete, decode
+		encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, countOfVariables, samplesPerMessage, earlyEncodingStop)
+
+		theoryBytesPerMessage := countOfVariables * samplesPerMessage * 16
+
+		if earlyEncodingStop {
+			theoryBytesPerMessage = countOfVariables * encodeStats.samples * 16
+		}
+		meanBytesPerMessage := float64(encodeStats.totalBytes) / float64(encodeStats.messages) // includes header overhead
+		percent := 100 * float64(meanBytesPerMessage) / float64(theoryBytesPerMessage)
+		// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
+
+		// fmt.Println("samples:", encodeStats.samples, "messages:", encodeStats.messages, "mean bytes per message:", meanBytesPerMessage, "theory bytes per message:", theoryBytesPerMessage, "percent:", percent, "%")
+		// fmt.Println("total bytes:", encodeStats.totalBytes, "total header bytes:", encodeStats.totalHeaderBytes, "total bytes without header:", encodeStats.totalBytes-encodeStats.totalHeaderBytes)
+
+		// fmt.Printf("%.2f%%, %.2f bits per sample\n", percent, encodeStats.bitsPerSample)
+
+		tab.AppendRow([]interface{}{
+			encodeStats.samples,
+			samplingRate,
+			samplesPerMessage,
+			encodeStats.messages,
+			fmt.Sprintf("%8.1f", meanBytesPerMessage),
+			fmt.Sprintf("%4.1f", percent),
+			fmt.Sprintf("%6.2f", encodeStats.bitsPerSample),
+		})
 	}
-	meanBytesPerMessage := float64(encodeStats.totalBytes) / float64(encodeStats.messages) // includes header overhead
-	percent := 100 * float64(meanBytesPerMessage) / float64(theoryBytesPerMessage)
-	// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
 
-	// fmt.Println("samples:", encodeStats.samples, "messages:", encodeStats.messages, "mean bytes per message:", meanBytesPerMessage, "theory bytes per message:", theoryBytesPerMessage, "percent:", percent, "%")
-	// fmt.Println("total bytes:", encodeStats.totalBytes, "total header bytes:", encodeStats.totalHeaderBytes, "total bytes without header:", encodeStats.totalBytes-encodeStats.totalHeaderBytes)
-
-	fmt.Printf("%.2f%%, %.2f bits per sample\n", percent, encodeStats.bitsPerSample)
+	// show table of results
+	tab.Render()
 }
 
 func TestEncodeDecode(t *testing.T) {

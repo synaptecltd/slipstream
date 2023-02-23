@@ -153,8 +153,10 @@ Internally, the encoder uses an alternating ping-pong buffer. This means that it
 You can run the test suite locally with:
 
 ```
-go test -v
+go test ./test/... -v
 ```
+
+Note that some tests use data from the [DOE/EPRI National Database Repository of Power System Events](https://pqmon.epri.com).
 
 ## C/C++ interface example
 
