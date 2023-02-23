@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gocarina/gocsv"
 	"github.com/google/uuid"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/rs/zerolog"
@@ -83,7 +84,7 @@ func createEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.Emulator
 
 	emu.V = &emulator.ThreePhaseEmulation{
 		PosSeqMag:   400000.0 / math.Sqrt(3) * math.Sqrt(2),
-		NoiseMax:    0.000001,
+		NoiseMax:    0.0000001,
 		PhaseOffset: phaseOffsetDeg * math.Pi / 180.0,
 	}
 	emu.I = &emulator.ThreePhaseEmulation{
@@ -92,7 +93,7 @@ func createEmulator(samplingRate int, phaseOffsetDeg float64) *emulator.Emulator
 		HarmonicNumbers: []float64{5, 7, 11, 13, 17, 19, 23, 25},
 		HarmonicMags:    []float64{0.2164, 0.1242, 0.0892, 0.0693, 0.0541, 0.0458, 0.0370, 0.0332},
 		HarmonicAngs:    []float64{171.5, 100.4, -52.4, 128.3, 80.0, 2.9, -146.8, 133.9},
-		NoiseMax:        0.00001,
+		NoiseMax:        0.000001,
 	}
 
 	return emu
@@ -257,6 +258,77 @@ func createInputData(ied *emulator.Emulator, samples int, countOfVariables int, 
 	return data
 }
 
+func createInputDataCSV(filename string) ([]slipstream.DatasetWithQuality, int) {
+	type sampleCSV struct {
+		Time float64 `csv:"Time (s)"` // .csv column headers
+		Va   float64 `csv:"Va"`
+		Vb   float64 `csv:"Vb"`
+		Vc   float64 `csv:"Vc"`
+		Ia   float64 `csv:"Ia"`
+		Ib   float64 `csv:"Ib"`
+		Ic   float64 `csv:"Ic"`
+		In   float64 `csv:"In"`
+	}
+
+	in, err := os.Open(filename)
+	if err != nil {
+		panic(err)
+	}
+	defer in.Close()
+
+	samples := []*sampleCSV{}
+
+	if err := gocsv.UnmarshalFile(in, &samples); err != nil {
+		panic(err)
+	}
+
+	numSamples := len(samples)
+
+	if numSamples < 2 {
+		panic("not enough data")
+	}
+
+	samplingRate := int(1.0 / (samples[1].Time - samples[0].Time))
+	countOfVariables := 8
+
+	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, numSamples)
+	for i := range data {
+		data[i].Int32s = make([]int32, countOfVariables)
+		data[i].Q = make([]uint32, countOfVariables)
+	}
+
+	// populated data from CSV file
+	// the timestamp is a simple integer counter, starting from 0
+	for i, sample := range samples {
+		// compute emulated waveform data
+
+		// calculate timestamp
+		data[i].T = uint64(i)
+
+		// set waveform data
+		data[i].Int32s[0] = int32(sample.Ia * 1000.0)
+		data[i].Int32s[1] = int32(sample.Ib * 1000.0)
+		data[i].Int32s[2] = int32(sample.Ic * 1000.0)
+		data[i].Int32s[3] = int32(sample.In * 1000.0)
+		data[i].Int32s[4] = int32(sample.Va * 100.0)
+		data[i].Int32s[5] = int32(sample.Vb * 100.0)
+		data[i].Int32s[6] = int32(sample.Vc * 100.0)
+		data[i].Int32s[7] = int32((sample.Va + sample.Vb + sample.Vc) * 100.0)
+
+		// set quality data
+		data[i].Q[0] = 0
+		data[i].Q[1] = 0
+		data[i].Q[2] = 0
+		data[i].Q[3] = 0
+		data[i].Q[4] = 0
+		data[i].Q[5] = 0
+		data[i].Q[6] = 0
+		data[i].Q[7] = 0
+	}
+
+	return data, samplingRate
+}
+
 func createInputDataDualIED(ied1 *emulator.Emulator, ied2 *emulator.Emulator, samples int, countOfVariables int, qualityChange bool) []slipstream.DatasetWithQuality {
 	var data []slipstream.DatasetWithQuality = make([]slipstream.DatasetWithQuality, samples)
 	for i := range data {
@@ -327,6 +399,7 @@ type encodeStats struct {
 	messages         int
 	totalBytes       int
 	totalHeaderBytes int
+	bitsPerSample    float64
 }
 
 const earlyEncodingStopSamples = 100
@@ -345,6 +418,9 @@ func encodeAndDecode(t *testing.T, data *[]slipstream.DatasetWithQuality, enc *s
 		// simulate encoding stopping early
 		if earlyEncodingStop && length == 0 && i == (earlyEncodingStopSamples-1) {
 			buf, length, _ = enc.EndEncode()
+		} else if i == len(*data)-1 && length == 0 {
+			// check if last sample and only a partial message was encoded
+			buf, length, _ = enc.EndEncode()
 		}
 
 		if length > 0 {
@@ -353,14 +429,14 @@ func encodeAndDecode(t *testing.T, data *[]slipstream.DatasetWithQuality, enc *s
 			encodeStats.totalBytes += length
 			encodeStats.totalHeaderBytes += 24
 
-			errDecode := dec.DecodeToBuffer(buf, length)
+			samplesDecoded, errDecode := dec.DecodeToBuffer(buf, length)
 			if errDecode != nil {
 				return nil, errDecode
 			}
 
 			// compare decoded output
 			if t != nil {
-				for i := range dec.Out {
+				for i := range dec.Out[:samplesDecoded] {
 					// only check up to samples encoded
 					if earlyEncodingStop && i >= earlyEncodingStopSamples {
 						break
@@ -380,7 +456,10 @@ func encodeAndDecode(t *testing.T, data *[]slipstream.DatasetWithQuality, enc *s
 				}
 			}
 
-			totalSamplesRead += enc.SamplesPerMessage
+			// factor in 8 bits per byte, and number of signals encoded in data
+			encodeStats.bitsPerSample = 8 * float64(encodeStats.totalBytes) / float64(countOfVariables*encodeStats.samples)
+
+			totalSamplesRead += samplesDecoded
 
 			if earlyEncodingStop {
 				return &encodeStats, nil
@@ -391,12 +470,41 @@ func encodeAndDecode(t *testing.T, data *[]slipstream.DatasetWithQuality, enc *s
 	return &encodeStats, nil
 }
 
+func TestEncodeDecodeCSVData(t *testing.T) {
+	data, samplingRate := createInputDataCSV("assets/21873.csv")
+	countOfVariables := 8
+	samplesPerMessage := samplingRate // len(data)
+	earlyEncodingStop := false
+
+	// create encoder and decoder
+	stream := slipstream.NewEncoder(ID, countOfVariables, samplingRate, samplesPerMessage)
+	streamDecoder := slipstream.NewDecoder(ID, countOfVariables, samplingRate, samplesPerMessage)
+
+	// encode the data
+	// when each message is complete, decode
+	encodeStats, _ := encodeAndDecode(t, &data, stream, streamDecoder, countOfVariables, samplesPerMessage, earlyEncodingStop)
+
+	theoryBytesPerMessage := countOfVariables * samplesPerMessage * 16
+
+	if earlyEncodingStop {
+		theoryBytesPerMessage = countOfVariables * encodeStats.samples * 16
+	}
+	meanBytesPerMessage := float64(encodeStats.totalBytes) / float64(encodeStats.messages) // includes header overhead
+	percent := 100 * float64(meanBytesPerMessage) / float64(theoryBytesPerMessage)
+	// meanBytesWithoutHeader := float64(encodeStats.totalBytes-encodeStats.totalHeaderBytes) / float64(encodeStats.iterations)
+
+	// fmt.Println("samples:", encodeStats.samples, "messages:", encodeStats.messages, "mean bytes per message:", meanBytesPerMessage, "theory bytes per message:", theoryBytesPerMessage, "percent:", percent, "%")
+	// fmt.Println("total bytes:", encodeStats.totalBytes, "total header bytes:", encodeStats.totalHeaderBytes, "total bytes without header:", encodeStats.totalBytes-encodeStats.totalHeaderBytes)
+
+	fmt.Printf("%.2f%%, %.2f bits per sample\n", percent, encodeStats.bitsPerSample)
+}
+
 func TestEncodeDecode(t *testing.T) {
 	// prepare table for presenting results
 	tab := table.NewWriter()
 	tab.SetOutputMirror(os.Stdout)
 	tab.SetStyle(table.StyleLight)
-	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "early\nencode stop", "spatial\nrefs", "size\n(bytes)", "size\n(%)"})
+	tab.AppendHeader(table.Row{"samples", "sampling\nrate", "samples\nper message", "messages", "quality\nchange", "early\nencode stop", "spatial\nrefs", "size\n(bytes)", "size\n(%)", "bits per\nsample"})
 
 	keys := make([]string, 0, len(tests))
 	for k := range tests {
@@ -453,8 +561,9 @@ func TestEncodeDecode(t *testing.T) {
 				tests[name].qualityChange,
 				tests[name].earlyEncodingStop,
 				tests[name].useSpatialRefs,
-				fmt.Sprintf("%.1f", meanBytesPerMessage),
-				fmt.Sprintf("%.1f", percent),
+				fmt.Sprintf("%8.1f", meanBytesPerMessage),
+				fmt.Sprintf("%4.1f", percent),
+				fmt.Sprintf("%6.2f", encodeStats.bitsPerSample),
 			})
 			// tab.AppendSeparator()
 		})
