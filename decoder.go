@@ -88,7 +88,7 @@ func (s *Decoder) SetSpatialRefs(count int, countV int, countI int, includeNeutr
 }
 
 // DecodeToBuffer decodes to a pre-allocated buffer
-func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
+func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) (int, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -100,7 +100,7 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	// check ID
 	res := bytes.Compare(buf[:length], s.ID[:])
 	if res != 0 {
-		return errors.New("IDs did not match")
+		return 0, errors.New("IDs did not match")
 	}
 
 	// decode timestamp
@@ -122,13 +122,13 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 	if actualSamples > UseGzipThresholdSamples {
 		gr, err := gzip.NewReader(bytes.NewBuffer(buf[length:]))
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		_, errRead := io.Copy(s.gzBuf, gr)
 		// origLen, errRead := gr.Read((buf[length:]))
 		if errRead != nil {
-			return errRead
+			return 0, errRead
 		}
 		gr.Close()
 	} else {
@@ -300,5 +300,5 @@ func (s *Decoder) DecodeToBuffer(buf []byte, totalLength int) error {
 		}
 	}
 
-	return nil
+	return actualSamples, nil
 }

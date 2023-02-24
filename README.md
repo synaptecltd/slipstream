@@ -2,6 +2,10 @@
 
 Slipstream is a method for lossless compression of power system data. It is tailored for efficiently handling sensor waveform data streams, including at high sample rates. It provides much higher compression performance than generic approaches such as gzip, and with faster message encoding and decoding. It can be used for streaming data in real-time, or storing waveform captures to files. This can significantly reduce data bandwidth requirements and latency.
 
+NASPI April 2022 Work Group presentation: https://www.naspi.org/sites/default/files/2022-04/D3S12_02_blair_20220412.pdf
+
+Paper for IEEE Smart Grid Synchronized Measurements and Analytics (SGSMA) 2022 conference: https://doi.org/10.1109/SGSMA51733.2022.9805997
+
 ## Example usage
 
 Open the [example file](https://github.com/synaptecltd/slipstream/blob/main/examples/basic/example.go) and run `go run example.go`. Typical operation is summarised below.
@@ -153,8 +157,10 @@ Internally, the encoder uses an alternating ping-pong buffer. This means that it
 You can run the test suite locally with:
 
 ```
-go test -v
+go test ./test/... -v
 ```
+
+Note that some tests use data from the [DOE/EPRI National Database Repository of Power System Events](https://pqmon.epri.com).
 
 ## C/C++ interface example
 
